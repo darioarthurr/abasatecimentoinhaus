@@ -1,8 +1,8 @@
-/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.1.1 */
+/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.1.2 */
 (() => {
   'use strict';
 
-  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.1' };
+  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.2' };
   const $ = (id) => document.getElementById(id);
   const FUEL_TYPES = ['Gasolina', 'Gasolina aditivada', 'Etanol'];
   const DB_NAME = 'GPSAbastecimentoDB';
@@ -642,7 +642,7 @@
     if (vehicle?.tanqueLitros && liters > Number(vehicle.tanqueLitros)*1.08) return toast('A quantidade de litros supera a capacidade cadastrada do tanque. Confira o lançamento.', 'warning', 5500);
     const timestamp = formData.dataHora ? new Date(formData.dataHora).toISOString() : new Date().toISOString();
     const record={
-      id:uuid(), placa:formData.placa, km, litros, combustivel:formData.combustivel, valorTotal:value,
+      id:uuid(), placa:formData.placa, km, litros:liters, combustivel:formData.combustivel, valorTotal:value,
       precoLitro:value/liters, cartaoId:formData.cartaoId, cartaoNome:selectedCard.nome, posto:formData.posto.trim(), observacoes:formData.observacoes.trim(),
       dataHora:timestamp, tanqueCheio:!!formData.tanqueCheio, fotoOdometroData:formData.fotoOdometroData,
       fotoNotaData:formData.fotoNotaData, usuarioId:state.user.id, usuarioNome:state.user.nome,
