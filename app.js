@@ -2,7 +2,7 @@
 (() => {
   'use strict';
 
-  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.3' };
+  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.4' };
   const $ = (id) => document.getElementById(id);
   const FUEL_TYPES = ['Gasolina', 'Gasolina aditivada', 'Etanol'];
   const DB_NAME = 'GPSAbastecimentoDB';
@@ -378,7 +378,8 @@
       vehicles: ['Gestão de veículos', 'Cadastre e mantenha a base da frota atualizada'],
       users: ['Gestão de usuários', 'Controle os acessos de administradores e operadores'],
       reports: ['Relatórios gerenciais', 'Análise de custos, consumo e eficiência por período'],
-      cards: ['Cartões de abastecimento', 'Saldos, recargas e extrato financeiro dos cartões']
+      cards: ['Cartões de abastecimento', 'Saldos, recargas e extrato financeiro dos cartões'],
+      profile: ['Meu perfil', 'Consulte seus dados e altere sua senha de acesso']
     };
     return map[view] || map.dashboard;
   }
@@ -400,6 +401,7 @@
     else if (view === 'users') renderUsers();
     else if (view === 'reports') renderReports();
     else if (view === 'cards') renderCards();
+    else if (view === 'profile') renderProfile();
     $('sidebar').classList.remove('open'); $('sidebarScrim').classList.remove('show');
     state.mobileMenu = false;
     if (view !== 'new') state.launchActive = false;
@@ -805,6 +807,59 @@
 
   function cardMovementLabel(type) {
     return ({SALDO_INICIAL:'Saldo inicial',CARGA:'Recarga',RENOVACAO_MENSAL:'Crédito mensal (dia 1)',EXPIRACAO_SALDO:'Zeragem do saldo remanescente',DEBITO_ABASTECIMENTO:'Abastecimento',AJUSTE_DEBITO:'Complemento de débito',AJUSTE_CREDITO:'Estorno parcial',ESTORNO_ABASTECIMENTO:'Estorno de abastecimento',ESTORNO_CANCELAMENTO:'Estorno de abastecimento cancelado',CANCELAMENTO_FORA_DO_CICLO:'Cancelamento após renovação (sem alterar saldo)',ESTORNO_COMPENSACAO:'Compensação',DEBITO_COMPENSACAO:'Compensação'})[type] || type || 'Movimentação';
+  }
+
+  function renderProfile() {
+    const user = state.user || {};
+    const initials = String(user.nome || user.email || '?').split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase();
+    $('view-profile').innerHTML = `
+      <div class="profile-layout">
+        <article class="profile-summary-card">
+          <div class="profile-avatar">${esc(initials)}</div>
+          <div class="profile-summary-copy">
+            <h2>${esc(user.nome || 'Usuário')}</h2>
+            <p>${esc(user.email || '')}</p>
+            <span class="role-tag ${user.role === 'ADMIN' ? 'admin' : ''}">${user.role === 'ADMIN' ? 'ADMINISTRADOR' : 'OPERAÇÃO'}</span>
+          </div>
+        </article>
+        <article class="profile-password-card">
+          <div class="profile-card-heading"><div><span class="profile-kicker">SEGURANÇA DA CONTA</span><h2>Alterar minha senha</h2><p>Use sua senha atual para cadastrar uma nova senha de acesso.</p></div><div class="profile-lock-icon">♧</div></div>
+          <form id="profilePasswordForm" class="profile-password-form" autocomplete="off">
+            <div class="field"><label for="profileCurrentPassword">Senha atual</label><input id="profileCurrentPassword" type="password" required autocomplete="current-password" placeholder="Digite sua senha atual"></div>
+            <div class="field"><label for="profileNewPassword">Nova senha</label><input id="profileNewPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="Mínimo de 8 caracteres"><span class="help">A senha deve ter pelo menos 8 caracteres. Não exigimos combinações especiais.</span></div>
+            <div class="field"><label for="profileConfirmPassword">Confirmar nova senha</label><input id="profileConfirmPassword" type="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="Digite novamente a nova senha"></div>
+            <div class="profile-password-note"><span>ⓘ</span><span>Após a alteração, este aparelho continuará conectado. Outros aparelhos precisarão entrar novamente.</span></div>
+            <div class="form-actions"><button type="submit" class="btn btn-primary">Salvar nova senha</button></div>
+          </form>
+        </article>
+      </div>`;
+
+    $('profilePasswordForm').addEventListener('submit', async event => {
+      event.preventDefault();
+      const currentPassword = $('profileCurrentPassword').value;
+      const newPassword = $('profileNewPassword').value;
+      const confirmPassword = $('profileConfirmPassword').value;
+      if (newPassword.length < 8) return toast('A nova senha deve ter no mínimo 8 caracteres.', 'warning');
+      if (newPassword.length > 128) return toast('A nova senha deve ter no máximo 128 caracteres.', 'warning');
+      if (newPassword !== confirmPassword) return toast('A confirmação não corresponde à nova senha.', 'warning');
+      if (newPassword === currentPassword) return toast('Escolha uma senha diferente da atual.', 'warning');
+      if (!isOnline()) return toast('Para alterar a senha, conecte-se à internet.', 'warning', 5000);
+
+      const submit = $('profilePasswordForm').querySelector('button[type="submit"]');
+      try {
+        submit.disabled = true;
+        loading(true, 'Atualizando sua senha...');
+        const result = await api('changeOwnPassword', { currentPassword, newPassword });
+        $('profilePasswordForm').reset();
+        loading(false);
+        toast(result?.message || 'Senha alterada com sucesso.', 'success', 5000);
+      } catch (error) {
+        loading(false);
+        toast(error.message || 'Não foi possível alterar a senha.', 'error', 5500);
+      } finally {
+        if (submit) submit.disabled = false;
+      }
+    });
   }
 
   function renderCards() {

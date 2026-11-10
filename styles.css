@@ -42,3 +42,24 @@
 @media(max-width:760px){.payment-card-balance{font-size:25px}.payment-card-actions .btn{flex:1}}
 
 .status-pill.status-cancelled{background:#ffebeb;color:#b64040}tr.record-cancelled td{color:#8a929b;background:#fcf7f7}tr.record-cancelled td strong{text-decoration:line-through;text-decoration-color:#c04444}
+
+
+/* Meu Perfil e alteração de senha - v1.1.4 */
+.profile-layout{display:grid;grid-template-columns:minmax(230px,.72fr) minmax(0,1.5fr);gap:16px;align-items:start}
+.profile-summary-card,.profile-password-card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:21px;box-shadow:var(--shadow)}
+.profile-summary-card{display:flex;align-items:center;gap:15px;min-width:0}
+.profile-avatar{width:58px;height:58px;flex:0 0 58px;display:grid;place-items:center;border-radius:50%;background:#e8f1f7;color:var(--navy);font-size:19px;font-weight:850}
+.profile-summary-copy{min-width:0}
+.profile-summary-copy h2{font-size:14px;color:var(--navy);margin:0 0 5px;overflow-wrap:anywhere}
+.profile-summary-copy p{font-size:10px;color:#718092;margin:0 0 10px;overflow-wrap:anywhere}
+.profile-kicker{font-size:9px;letter-spacing:1.1px;font-weight:850;color:#27806f}
+.profile-card-heading{display:flex;justify-content:space-between;gap:15px;align-items:flex-start;margin-bottom:19px}
+.profile-card-heading h2{font-size:17px;color:var(--navy);margin:5px 0 5px}
+.profile-card-heading p{font-size:10px;line-height:1.5;color:#718092;margin:0}
+.profile-lock-icon{width:42px;height:42px;flex:0 0 42px;border-radius:12px;background:#edf5f8;color:#23607a;display:grid;place-items:center;font-size:22px}
+.profile-password-form{display:grid;gap:14px;max-width:540px}
+.profile-password-form .field{margin:0}
+.profile-password-note{display:flex;gap:8px;align-items:flex-start;padding:11px 12px;background:#f2f7fa;border:1px solid #e2edf2;border-radius:9px;color:#5e7284;font-size:10px;line-height:1.5}
+.profile-password-note span:first-child{font-size:14px;color:#36718c}
+.profile-password-form .form-actions{margin-top:2px}
+@media(max-width:760px){.profile-layout{grid-template-columns:1fr}.profile-summary-card,.profile-password-card{padding:17px}.profile-password-form .form-actions .btn{width:100%}}
