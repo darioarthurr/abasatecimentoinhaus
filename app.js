@@ -1,4 +1,4 @@
-/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.0.0 */
+/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.0.1 */
 (() => {
   'use strict';
 
@@ -116,7 +116,7 @@
 
   async function loadLocalData() {
     const [vehicles, records, users] = await Promise.all([state.db.all('veiculos'), state.db.all('abastecimentos'), state.db.all('usuarios')]);
-    state.vehicles = vehicles.filter(v => v.ativo !== false);
+    state.vehicles = vehicles;
     state.records = records;
     state.users = users;
     updateSyncStatus();
@@ -126,7 +126,15 @@
     const outbox = await state.db.all('outbox');
     const pendingIds = new Set(outbox.map(x => x.id));
     if (Array.isArray(data.veiculos)) {
+      const receivedVehicleIds = new Set(data.veiculos.map(v => String(v.id)));
       for (const v of data.veiculos) await state.db.put('veiculos', v);
+      // Operação recebe somente veículos ativos; marque os antigos ausentes como inativos no cache local.
+      if (state.user?.role !== 'ADMIN') {
+        const cachedVehicles = await state.db.all('veiculos');
+        for (const v of cachedVehicles) {
+          if (!receivedVehicleIds.has(String(v.id)) && v.ativo !== false) await state.db.put('veiculos', { ...v, ativo: false });
+        }
+      }
     }
     if (Array.isArray(data.usuarios)) {
       for (const u of data.usuarios) await state.db.put('usuarios', u);
@@ -314,7 +322,7 @@
       byMonth.push({ label:d.toLocaleDateString('pt-BR',{month:'short'}).replace('.',''), value:list.reduce((s,r)=>s+Number(r.valorTotal||0),0) });
     }
     const max = Math.max(1,...byMonth.map(x=>x.value));
-    const vehicleStats = state.vehicles.map(v=>({plate:v.placa, value:records.filter(r=>r.placa===v.placa).reduce((s,r)=>s+Number(r.valorTotal||0),0)})).sort((a,b)=>b.value-a.value).slice(0,6);
+    const vehicleStats = state.vehicles.filter(v=>v.ativo!==false).map(v=>({plate:v.placa, value:records.filter(r=>r.placa===v.placa).reduce((s,r)=>s+Number(r.valorTotal||0),0)})).sort((a,b)=>b.value-a.value).slice(0,6);
     const maxVehicle = Math.max(1,...vehicleStats.map(v=>v.value));
     $('view-dashboard').innerHTML = `
       <div class="metric-grid">
@@ -331,7 +339,7 @@
         <article class="panel"><div class="panel-header"><div><h3>Alertas para análise</h3><div class="panel-subtitle">Sinais de consumo, volume ou quilometragem fora do padrão</div></div><span class="status-pill ${alerts.length?'status-warning':'status-ok'}">${alerts.length} alerta(s)</span></div>
         ${alerts.length ? `<div class="alert-list">${alerts.map(a=>`<div class="alert-item ${a.alerta==='CONSUMO_ALTO'||a.alerta==='KM_INCONSISTENTE'?'danger':''}"><div class="alert-mark">⚠</div><div><strong>${esc(a.placa)} · ${esc(alertLabel(a.alerta))}</strong><p>${esc(a.alertaDescricao || 'Registro sinalizado para conferência gerencial.')} · ${fmtDate(a.dataHora)}</p></div></div>`).join('')}</div>` : '<div class="empty-state"><b>Nenhum alerta identificado</b>Os registros sincronizados não apresentam alertas automáticos neste momento.</div>'}</article>
         <article class="panel"><div class="panel-header"><div><h3>Resumo da frota</h3><div class="panel-subtitle">Situação do cadastro e da base de abastecimentos</div></div></div>
-          <div class="report-kv"><span>Veículos ativos</span><b>${state.vehicles.length}</b></div>
+          <div class="report-kv"><span>Veículos ativos</span><b>${state.vehicles.filter(v=>v.ativo!==false).length}</b></div>
           <div class="report-kv"><span>Abastecimentos registrados</span><b>${records.length}</b></div>
           <div class="report-kv"><span>Distância acumulada registrada</span><b>${fmtNumber(totalKms,0)} km</b></div>
           <div class="report-kv"><span>Gasto total registrado</span><b>${fmtMoney(totalValue(records))}</b></div>
@@ -358,7 +366,7 @@
   }
 
   function renderNewForm() {
-    const options = state.vehicles.map(v=>`<option value="${esc(v.placa)}">${esc(v.placa)} · ${esc(`${v.marca||''} ${v.modelo||''}`.trim())}</option>`).join('');
+    const options = state.vehicles.filter(v=>v.ativo!==false).map(v=>`<option value="${esc(v.placa)}">${esc(v.placa)} · ${esc(`${v.marca||''} ${v.modelo||''}`.trim())}</option>`).join('');
     $('view-new').innerHTML = `
       <div class="form-layout">
         <form id="fuelForm" class="form-card">
@@ -551,27 +559,62 @@
   }
 
   function renderVehicles() {
-    $('view-vehicles').innerHTML=`<div class="toolbar-row"><span class="muted">${state.vehicles.length} veículo(s) ativo(s)</span><button class="btn btn-primary btn-sm" id="newVehicleBtn">＋ Cadastrar veículo</button></div><div class="card-grid">${state.vehicles.map(v=>`<article class="vehicle-card"><div class="vehicle-card-head"><span class="plate-badge">${esc(v.placa)}</span><span class="status-pill status-ok">Ativo</span></div><div class="vehicle-name">${esc(`${v.marca||''} ${v.modelo||''}`.trim()||'Modelo não informado')} ${v.ano?`· ${esc(v.ano)}`:''}</div><div class="vehicle-data"><div><span>Combustível padrão</span><b>${esc(v.combustivelPadrao||'—')}</b></div><div><span>Tanque</span><b>${v.tanqueLitros?`${fmtNumber(v.tanqueLitros,0)} L`:'—'}</b></div><div><span>Consumo esperado</span><b>${v.consumoEsperado?`${fmtNumber(v.consumoEsperado,1)} km/L`:'—'}</b></div><div><span>Centro de custo</span><b>${esc(v.centroCusto||'—')}</b></div></div></article>`).join('')||'<div class="empty-state">Nenhum veículo cadastrado.</div>'}</div>`;
-    $('newVehicleBtn').addEventListener('click',showVehicleModal);
+    const activeCount = state.vehicles.filter(v => v.ativo !== false).length;
+    $('view-vehicles').innerHTML = `<div class="toolbar-row"><span class="muted">${activeCount} ativo(s) · ${state.vehicles.length} cadastrado(s)</span><button class="btn btn-primary btn-sm" id="newVehicleBtn">＋ Cadastrar veículo</button></div><div class="card-grid">${state.vehicles.slice().sort((a,b)=>String(a.placa).localeCompare(String(b.placa))).map(v=>`<article class="vehicle-card"><div class="vehicle-card-head"><span class="plate-badge">${esc(v.placa)}</span><span class="status-pill ${v.ativo===false?'status-pending':'status-ok'}">${v.ativo===false?'Inativo':'Ativo'}</span></div><div class="vehicle-name">${esc(`${v.marca||''} ${v.modelo||''}`.trim()||'Modelo não informado')} ${v.ano?`· ${esc(v.ano)}`:''}</div><div class="vehicle-data"><div><span>Combustível padrão</span><b>${esc(v.combustivelPadrao||'—')}</b></div><div><span>Tanque</span><b>${v.tanqueLitros?`${fmtNumber(v.tanqueLitros,0)} L`:'—'}</b></div><div><span>Consumo esperado</span><b>${v.consumoEsperado?`${fmtNumber(v.consumoEsperado,1)} km/L`:'—'}</b></div><div><span>Centro de custo</span><b>${esc(v.centroCusto||'—')}</b></div><div><span>KM de referência</span><b>${fmtNumber(v.kmAtual||0,0)} km</b></div></div><div class="form-actions"><button class="btn btn-outline btn-sm" data-edit-vehicle="${esc(v.id)}">✎ Editar veículo</button></div></article>`).join('')||'<div class="empty-state">Nenhum veículo cadastrado.</div>'}</div>`;
+    $('newVehicleBtn').addEventListener('click',()=>showVehicleModal());
+    $('view-vehicles').querySelectorAll('[data-edit-vehicle]').forEach(btn=>btn.addEventListener('click',()=>{
+      const vehicle=state.vehicles.find(v=>String(v.id)===String(btn.dataset.editVehicle));
+      if(vehicle) showVehicleModal(vehicle);
+    }));
   }
-  function showVehicleModal() {
-    $('modalRoot').innerHTML=`<div class="modal-backdrop"><div class="modal-card"><div class="modal-header"><h3>Cadastrar veículo</h3><button class="icon-btn" data-vclose>×</button></div><form id="vehicleForm"><div class="modal-body"><div class="form-grid"><div class="field"><label>Placa *<input id="vPlate" required maxlength="7" placeholder="ABC1D23"></label></div><div class="field"><label>Marca<input id="vMake" maxlength="60"></label></div><div class="field"><label>Modelo<input id="vModel" maxlength="60"></label></div><div class="field"><label>Ano<input id="vYear" type="number" min="1950" max="2100"></label></div><div class="field"><label>Capacidade do tanque (L)<input id="vTank" type="number" min="1" step="0.1"></label></div><div class="field"><label>Combustível padrão<select id="vFuel">${FUEL_TYPES.map(f=>`<option>${f}</option>`).join('')}</select></label></div><div class="field"><label>Consumo esperado (km/L)<input id="vExpected" type="number" min="0.1" step="0.1" placeholder="Ex.: 10,5"></label></div><div class="field"><label>Centro de custo / contrato<input id="vCostCenter" maxlength="80"></label></div><div class="field full"><label>KM atual de referência<input id="vKm" type="number" min="0" step="1" value="0"></label></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-vclose>Cancelar</button><button type="submit" class="btn btn-primary">Salvar veículo</button></div></form></div></div>`;
+
+  function showVehicleModal(vehicle = null) {
+    const editing = !!vehicle;
+    const hasFuelHistory = editing && state.records.some(r=>String(r.placa)===String(vehicle.placa));
+    $('modalRoot').innerHTML=`<div class="modal-backdrop"><div class="modal-card"><div class="modal-header"><h3>${editing?'Editar veículo':'Cadastrar veículo'}</h3><button class="icon-btn" data-vclose>×</button></div><form id="vehicleForm"><div class="modal-body"><div class="form-grid"><div class="field"><label>Placa *<input id="vPlate" required maxlength="7" placeholder="ABC1D23" value="${esc(vehicle?.placa||'')}" ${hasFuelHistory?'readonly':''}></label>${hasFuelHistory?'<span class="help">A placa não pode ser alterada porque já existem abastecimentos vinculados a ela.</span>':''}</div><div class="field"><label>Marca<input id="vMake" maxlength="60" value="${esc(vehicle?.marca||'')}"></label></div><div class="field"><label>Modelo<input id="vModel" maxlength="60" value="${esc(vehicle?.modelo||'')}"></label></div><div class="field"><label>Ano<input id="vYear" type="number" min="1950" max="2100" value="${esc(vehicle?.ano||'')}"></label></div><div class="field"><label>Capacidade do tanque (L)<input id="vTank" type="number" min="1" step="0.1" value="${esc(vehicle?.tanqueLitros||'')}"></label></div><div class="field"><label>Combustível padrão<select id="vFuel">${FUEL_TYPES.map(f=>`<option ${f===(vehicle?.combustivelPadrao||'Gasolina')?'selected':''}>${f}</option>`).join('')}</select></label></div><div class="field"><label>Consumo esperado (km/L)<input id="vExpected" type="number" min="0.1" step="0.1" placeholder="Ex.: 10,5" value="${esc(vehicle?.consumoEsperado||'')}"></label></div><div class="field"><label>Centro de custo / contrato<input id="vCostCenter" maxlength="80" value="${esc(vehicle?.centroCusto||'')}"></label></div><div class="field full"><label>KM atual de referência<input id="vKm" type="number" min="0" step="1" value="${esc(vehicle?.kmAtual??0)}"></label><span class="help">O KM não pode ser inferior ao maior odômetro já registrado para este veículo.</span></div>${editing?`<div class="field full"><label class="check-line"><input id="vActive" type="checkbox" ${vehicle.ativo===false?'':'checked'}><span><b>Veículo ativo</b><br><small class="help">Desative veículos fora de operação. O histórico permanece preservado.</small></span></label></div><div class="field full"><label>Motivo da alteração *<input id="vReason" required minlength="5" maxlength="250" placeholder="Descreva o motivo da atualização"></label></div>`:''}</div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-vclose>Cancelar</button><button type="submit" class="btn btn-primary">${editing?'Salvar alterações':'Cadastrar veículo'}</button></div></form></div></div>`;
     $('modalRoot').querySelectorAll('[data-vclose]').forEach(b=>b.addEventListener('click',()=>$('modalRoot').innerHTML=''));
     $('vPlate').addEventListener('input',e=>e.target.value=plateFmt(e.target.value));
     $('vehicleForm').addEventListener('submit',async e=>{
-      e.preventDefault();const vehicle={id:uuid(),placa:plateFmt($('vPlate').value),marca:$('vMake').value.trim(),modelo:$('vModel').value.trim(),ano:$('vYear').value,tanqueLitros:Number($('vTank').value)||0,combustivelPadrao:$('vFuel').value,consumoEsperado:Number($('vExpected').value)||0,centroCusto:$('vCostCenter').value.trim(),kmAtual:Number($('vKm').value)||0,ativo:true};
-      try{loading(true,'Salvando veículo...');const data=await api('createVehicle',{vehicle});await state.db.put('veiculos',data.vehicle);await loadLocalData();loading(false);$('modalRoot').innerHTML='';toast('Veículo cadastrado.','success');renderVehicles();}catch(err){loading(false);toast(err.message,'error');}
+      e.preventDefault();
+      const payload={id:vehicle?.id||uuid(),placa:plateFmt($('vPlate').value),marca:$('vMake').value.trim(),modelo:$('vModel').value.trim(),ano:$('vYear').value,tanqueLitros:Number($('vTank').value)||0,combustivelPadrao:$('vFuel').value,consumoEsperado:Number($('vExpected').value)||0,centroCusto:$('vCostCenter').value.trim(),kmAtual:Number($('vKm').value)||0,ativo:editing?$('vActive').checked:true};
+      if(editing) payload.motivo=$('vReason').value.trim();
+      try{loading(true,editing?'Atualizando veículo...':'Cadastrando veículo...');const data=await api(editing?'updateVehicle':'createVehicle',editing?{id:vehicle.id,vehicle:payload}:{vehicle:payload});await state.db.put('veiculos',data.vehicle);await loadLocalData();loading(false);$('modalRoot').innerHTML='';toast(editing?'Veículo atualizado.':'Veículo cadastrado.','success');renderVehicles();}catch(err){loading(false);toast(err.message,'error',5500);}
     });
   }
 
   function renderUsers() {
-    $('view-users').innerHTML=`<div class="toolbar-row"><span class="muted">Apenas administradores podem criar usuários.</span><button class="btn btn-primary btn-sm" id="newUserBtn">＋ Cadastrar usuário</button></div><div class="card-grid">${state.users.map(u=>`<article class="user-card"><div class="user-card-head"><b>${esc(u.nome)}</b><span class="role-tag ${u.role==='ADMIN'?'admin':''}">${u.role==='ADMIN'?'ADMIN':'OPERAÇÃO'}</span></div><div class="vehicle-name">${esc(u.email)}</div><div class="vehicle-data"><div><span>Status</span><b>${u.ativo===false?'Inativo':'Ativo'}</b></div><div><span>Cadastro</span><b>${fmtDate(u.criadoEm)}</b></div></div></article>`).join('')||'<div class="empty-state">Nenhum usuário disponível.</div>'}</div>`;
-    $('newUserBtn').addEventListener('click',showUserModal);
+    $('view-users').innerHTML=`<div class="toolbar-row"><span class="muted">Gerencie dados, perfil, situação e redefinição de senha dos usuários.</span><button class="btn btn-primary btn-sm" id="newUserBtn">＋ Cadastrar usuário</button></div><div class="card-grid">${state.users.slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome))).map(u=>`<article class="user-card"><div class="user-card-head"><b>${esc(u.nome)}</b><span class="role-tag ${u.role==='ADMIN'?'admin':''}">${u.role==='ADMIN'?'ADMIN':'OPERAÇÃO'}</span></div><div class="vehicle-name">${esc(u.email)}</div><div class="vehicle-data"><div><span>Status</span><b>${u.ativo===false?'Inativo':'Ativo'}</b></div><div><span>Cadastro</span><b>${fmtDate(u.criadoEm)}</b></div></div><div class="form-actions"><button class="btn btn-outline btn-sm" data-edit-user="${esc(u.id)}">✎ Editar usuário</button></div></article>`).join('')||'<div class="empty-state">Nenhum usuário disponível.</div>'}</div>`;
+    $('newUserBtn').addEventListener('click',()=>showUserModal());
+    $('view-users').querySelectorAll('[data-edit-user]').forEach(btn=>btn.addEventListener('click',()=>{
+      const user=state.users.find(u=>String(u.id)===String(btn.dataset.editUser));
+      if(user) showUserModal(user);
+    }));
   }
-  function showUserModal() {
-    $('modalRoot').innerHTML=`<div class="modal-backdrop"><div class="modal-card"><div class="modal-header"><h3>Cadastrar usuário</h3><button class="icon-btn" data-uclose>×</button></div><form id="userForm"><div class="modal-body"><div class="form-grid"><div class="field full"><label>Nome completo *<input id="uName" required maxlength="100"></label></div><div class="field full"><label>E-mail *<input id="uEmail" type="email" required maxlength="120"></label></div><div class="field"><label>Senha inicial *<input id="uPassword" type="password" required minlength="8" autocomplete="new-password"><span class="help">Mínimo de 8 caracteres.</span></label></div><div class="field"><label>Nível de acesso<select id="uRole"><option value="OPERACAO">Operação</option><option value="ADMIN">Administrador</option></select></label></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-uclose>Cancelar</button><button type="submit" class="btn btn-primary">Criar usuário</button></div></form></div></div>`;
+
+  function showUserModal(user = null) {
+    const editing=!!user;
+    const isSelf=editing && String(user.id)===String(state.user.id);
+    $('modalRoot').innerHTML=`<div class="modal-backdrop"><div class="modal-card"><div class="modal-header"><h3>${editing?'Editar usuário':'Cadastrar usuário'}</h3><button class="icon-btn" data-uclose>×</button></div><form id="userForm"><div class="modal-body"><div class="form-grid"><div class="field full"><label>Nome completo *<input id="uName" required maxlength="100" value="${esc(user?.nome||'')}"></label></div><div class="field full"><label>E-mail *<input id="uEmail" type="email" required maxlength="120" value="${esc(user?.email||'')}"></label></div><div class="field"><label>${editing?'Nova senha (opcional)':'Senha inicial *'}<input id="uPassword" type="password" ${editing?'':'required'} minlength="8" autocomplete="new-password" placeholder="${editing?'Deixe em branco para manter':'Mínimo de 8 caracteres'}"></label><span class="help">${editing?'Preencha somente para redefinir a senha.':'Mínimo de 8 caracteres.'}</span></div><div class="field"><label>Nível de acesso<select id="uRole" ${isSelf?'disabled':''}><option value="OPERACAO" ${user?.role==='OPERACAO'?'selected':''}>Operação</option><option value="ADMIN" ${user?.role==='ADMIN'?'selected':''}>Administrador</option></select></label></div>${editing?`<div class="field full"><label class="check-line"><input id="uActive" type="checkbox" ${user.ativo===false?'':'checked'} ${isSelf?'disabled':''}><span><b>Usuário ativo</b><br><small class="help">Usuários inativos não conseguem entrar no sistema.</small></span></label></div><div class="field full"><label>Motivo da alteração *<input id="uReason" required minlength="5" maxlength="250" placeholder="Descreva o motivo da atualização"></label></div>${isSelf?'<div class="field full"><span class="help">Por segurança, a própria conta não pode alterar o nível de acesso, ser desativada ou redefinir a própria senha por esta tela.</span></div>':''}`:''}</div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-uclose>Cancelar</button><button type="submit" class="btn btn-primary">${editing?'Salvar alterações':'Criar usuário'}</button></div></form></div></div>`;
     $('modalRoot').querySelectorAll('[data-uclose]').forEach(b=>b.addEventListener('click',()=>$('modalRoot').innerHTML=''));
-    $('userForm').addEventListener('submit',async e=>{e.preventDefault();const user={id:uuid(),nome:$('uName').value.trim(),email:$('uEmail').value.trim().toLowerCase(),password:$('uPassword').value,role:$('uRole').value};try{loading(true,'Criando usuário...');const data=await api('createUser',{user});await state.db.put('usuarios',data.user);await loadLocalData();loading(false);$('modalRoot').innerHTML='';toast('Usuário criado.','success');renderUsers();}catch(err){loading(false);toast(err.message,'error');}});
+    $('userForm').addEventListener('submit',async e=>{
+      e.preventDefault();
+      const payload={id:user?.id||uuid(),nome:$('uName').value.trim(),email:$('uEmail').value.trim().toLowerCase(),role:isSelf?user.role:$('uRole').value,ativo:editing?(isSelf?user.ativo:$('uActive').checked):true};
+      if($('uPassword').value) payload.password=$('uPassword').value;
+      if(editing) payload.motivo=$('uReason').value.trim();
+      try{
+        loading(true,editing?'Atualizando usuário...':'Criando usuário...');
+        const data=await api(editing?'updateUser':'createUser',editing?{id:user.id,user:payload}:{user:payload});
+        await state.db.put('usuarios',data.user);
+        if(state.user && String(state.user.id)===String(data.user.id)){
+          state.user=data.user;
+          const cached=await getCachedSession();
+          if(cached) await saveSession({...cached,user:data.user});
+          $('userName').textContent=data.user.nome||data.user.email;
+          $('userInitials').textContent=(data.user.nome||data.user.email).split(/\s+/).slice(0,2).map(x=>x[0]).join('').toUpperCase();
+        }
+        await loadLocalData();loading(false);$('modalRoot').innerHTML='';toast(editing?'Usuário atualizado.':'Usuário criado.','success');renderUsers();
+      }catch(err){loading(false);toast(err.message,'error',5500);}
+    });
   }
 
   function renderReports() {
@@ -579,7 +622,7 @@
     const byFuel=FUEL_TYPES.map(f=>({fuel:f,items:records.filter(r=>r.combustivel===f)}));
     const now=new Date();
     const thisMonth=records.filter(r=>{const d=new Date(r.dataHora);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();});
-    const vehicleRows=state.vehicles.map(v=>{const rs=records.filter(r=>r.placa===v.placa);return {v,rs,spend:totalValue(rs),liters:rs.reduce((s,r)=>s+Number(r.litros||0),0),eff:averageConsumption(rs)};}).sort((a,b)=>b.spend-a.spend);
+    const vehicleRows=state.vehicles.filter(v=>v.ativo!==false).map(v=>{const rs=records.filter(r=>r.placa===v.placa);return {v,rs,spend:totalValue(rs),liters:rs.reduce((s,r)=>s+Number(r.litros||0),0),eff:averageConsumption(rs)};}).sort((a,b)=>b.spend-a.spend);
     $('view-reports').innerHTML=`<div class="metric-grid"><article class="metric-card"><div class="metric-top">Gasto acumulado<span class="metric-icon">R$</span></div><div class="metric-value">${fmtMoney(totalValue(records))}</div><div class="metric-note">Todos os registros carregados</div></article><article class="metric-card"><div class="metric-top">Gasto no mês<span class="metric-icon">▦</span></div><div class="metric-value">${fmtMoney(totalValue(thisMonth))}</div><div class="metric-note">${thisMonth.length} lançamentos</div></article><article class="metric-card"><div class="metric-top">Preço médio / litro<span class="metric-icon">⛽</span></div><div class="metric-value">${records.reduce((s,r)=>s+Number(r.litros||0),0)?fmtMoney(totalValue(records)/records.reduce((s,r)=>s+Number(r.litros||0),0)):'—'}</div><div class="metric-note">Média ponderada por volume</div></article><article class="metric-card"><div class="metric-top">Alertas<span class="metric-icon">⚠</span></div><div class="metric-value">${records.filter(r=>r.alerta&&r.alerta!=='OK').length}</div><div class="metric-note">Registros sinalizados</div></article></div>
       <div class="report-grid"><article class="panel"><div class="panel-header"><div><h3>Gasto por combustível</h3><div class="panel-subtitle">Distribuição acumulada</div></div></div>${byFuel.map(x=>`<div class="report-kv"><span>${esc(x.fuel)} · ${fmtNumber(x.items.reduce((s,r)=>s+Number(r.litros||0),0),1)} L</span><b>${fmtMoney(totalValue(x.items))}</b></div>`).join('')}</article><article class="panel"><div class="panel-header"><div><h3>Critérios de leitura dos indicadores</h3><div class="panel-subtitle">Regras para interpretação gerencial</div></div></div><p class="small-note">O consumo em km/L só é apresentado em ciclos de tanque completo. Abastecimentos parciais acumulam litros até o próximo abastecimento marcado como tanque completo. Ciclos com mudança de combustível são sinalizados e não entram na média.</p><p class="small-note">Alertas de consumo são indícios para conferência, não comprovação de desvio. Compare rota, carga, trânsito, manutenção, tipo de combustível e evidências fotográficas antes de concluir.</p></article></div>
       <div class="table-card" style="margin-top:15px"><div class="table-head"><h3>Indicadores por veículo</h3><button class="btn btn-outline btn-sm" id="exportReportBtn">⇩ Exportar CSV</button></div><div class="table-wrap"><table><thead><tr><th>Placa</th><th>Abastecimentos</th><th>Litros</th><th>Gasto</th><th>Consumo km/L</th><th>Custo / km</th></tr></thead><tbody>${vehicleRows.map(x=>`<tr><td><strong>${esc(x.v.placa)}</strong></td><td>${x.rs.length}</td><td>${fmtNumber(x.liters,1)}</td><td>${fmtMoney(x.spend)}</td><td>${x.eff?`${fmtNumber(x.eff,2)} km/L`:'—'}</td><td>${x.rs.length?fmtMoney(moneyPerKm(x.rs)):'—'}</td></tr>`).join('')||'<tr><td colspan="6">Sem dados disponíveis.</td></tr>'}</tbody></table></div></div>`;
