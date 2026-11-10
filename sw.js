@@ -1,5 +1,5 @@
-/* Grupo GPS - Service Worker | PWA 1.0.2 */
-const CACHE_NAME = 'gps-abastecimento-v1.0.2';
+/* Grupo GPS - Service Worker | PWA 1.1.0 */
+const CACHE_NAME = 'gps-abastecimento-v1.1.0';
 const APP_SHELL = [
   './index.html',
   './styles.css',

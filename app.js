@@ -1,16 +1,16 @@
-/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.0.2 */
+/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.1.0 */
 (() => {
   'use strict';
 
-  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.0.0' };
+  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.0' };
   const $ = (id) => document.getElementById(id);
   const FUEL_TYPES = ['Gasolina', 'Gasolina aditivada', 'Etanol'];
   const DB_NAME = 'GPSAbastecimentoDB';
-  const DB_VERSION = 1;
+  const DB_VERSION = 2;
   let swRegistration = null;
   let applyingAppUpdate = false;
   let checkingAppUpdate = false;
-  const state = { db: null, user: null, token: null, view: 'dashboard', vehicles: [], records: [], users: [], draftTimer: null, launchActive: false, mobileMenu: false, syncing: false };
+  const state = { db: null, user: null, token: null, view: 'dashboard', vehicles: [], records: [], users: [], cards: [], cardMovements: [], draftTimer: null, launchActive: false, mobileMenu: false, syncing: false };
 
   class LocalDB {
     constructor() { this.db = null; }
@@ -19,7 +19,7 @@
         const req = indexedDB.open(DB_NAME, DB_VERSION);
         req.onupgradeneeded = () => {
           const db = req.result;
-          for (const store of ['abastecimentos', 'veiculos', 'usuarios', 'outbox', 'session', 'draft', 'meta']) {
+          for (const store of ['abastecimentos', 'veiculos', 'usuarios', 'cartoes', 'movimentacoesCartoes', 'outbox', 'session', 'draft', 'meta']) {
             if (!db.objectStoreNames.contains(store)) db.createObjectStore(store, { keyPath: 'id' });
           }
         };
@@ -208,10 +208,15 @@
   }
 
   async function loadLocalData() {
-    const [vehicles, records, users] = await Promise.all([state.db.all('veiculos'), state.db.all('abastecimentos'), state.db.all('usuarios')]);
+    const [vehicles, records, users, cards, cardMovements] = await Promise.all([
+      state.db.all('veiculos'), state.db.all('abastecimentos'), state.db.all('usuarios'),
+      state.db.all('cartoes'), state.db.all('movimentacoesCartoes')
+    ]);
     state.vehicles = vehicles;
     state.records = records;
     state.users = users;
+    state.cards = cards;
+    state.cardMovements = cardMovements;
     updateSyncStatus();
   }
 
@@ -231,6 +236,22 @@
     }
     if (Array.isArray(data.usuarios)) {
       for (const u of data.usuarios) await state.db.put('usuarios', u);
+    }
+    if (Array.isArray(data.cartoes)) {
+      const receivedCardIds = new Set(data.cartoes.map(c => String(c.id)));
+      for (const card of data.cartoes) await state.db.put('cartoes', card);
+      // Operação recebe apenas cartões ativos: os demais ficam indisponíveis no cache local.
+      if (state.user?.role !== 'ADMIN') {
+        const cachedCards = await state.db.all('cartoes');
+        for (const card of cachedCards) {
+          if (!receivedCardIds.has(String(card.id)) && card.ativo !== false) await state.db.put('cartoes', { ...card, ativo: false });
+        }
+        await state.db.clear('movimentacoesCartoes');
+      }
+    }
+    if (Array.isArray(data.movimentacoesCartoes) && state.user?.role === 'ADMIN') {
+      await state.db.clear('movimentacoesCartoes');
+      for (const movement of data.movimentacoesCartoes) await state.db.put('movimentacoesCartoes', movement);
     }
     if (Array.isArray(data.abastecimentos)) {
       for (const r of data.abastecimentos) {
@@ -356,14 +377,15 @@
       history: [state.user?.role === 'ADMIN' ? 'Histórico de abastecimentos' : 'Meus lançamentos', 'Consulte registros, evidências e situação de sincronização'],
       vehicles: ['Gestão de veículos', 'Cadastre e mantenha a base da frota atualizada'],
       users: ['Gestão de usuários', 'Controle os acessos de administradores e operadores'],
-      reports: ['Relatórios gerenciais', 'Análise de custos, consumo e eficiência por período']
+      reports: ['Relatórios gerenciais', 'Análise de custos, consumo e eficiência por período'],
+      cards: ['Cartões de abastecimento', 'Saldos, recargas e extrato financeiro dos cartões']
     };
     return map[view] || map.dashboard;
   }
 
   function navigate(view) {
     if (!state.user) return;
-    if (state.user.role !== 'ADMIN' && ['dashboard', 'vehicles', 'users', 'reports'].includes(view)) view = 'new';
+    if (state.user.role !== 'ADMIN' && ['dashboard', 'vehicles', 'users', 'reports', 'cards'].includes(view)) view = 'new';
     state.view = view;
     document.querySelectorAll('.nav-item').forEach(btn => btn.classList.toggle('active', btn.dataset.view === view));
     document.querySelectorAll('.view').forEach(el => el.classList.toggle('hidden', el.id !== `view-${view}`));
@@ -377,6 +399,7 @@
     else if (view === 'vehicles') renderVehicles();
     else if (view === 'users') renderUsers();
     else if (view === 'reports') renderReports();
+    else if (view === 'cards') renderCards();
     $('sidebar').classList.remove('open'); $('sidebarScrim').classList.remove('show');
     state.mobileMenu = false;
     if (view !== 'new') state.launchActive = false;
@@ -449,7 +472,7 @@
 
   function renderFuelTable(records, compact = false) {
     if (!records.length) return '<div class="empty-state"><b>Nenhum registro encontrado</b>Os abastecimentos aparecerão aqui após o primeiro lançamento.</div>';
-    return `<table><thead><tr><th>Data</th><th>Placa</th><th>KM</th><th>Litros</th><th>Combustível</th><th>Valor</th><th>Consumo</th>${compact?'':'<th>Responsável</th><th>Status</th>'}<th>Ação</th></tr></thead><tbody>${records.map(r=>`<tr><td>${fmtDateTime(r.dataHora)}</td><td><strong>${esc(r.placa)}</strong></td><td>${fmtNumber(r.km,0)}</td><td>${fmtNumber(r.litros,2)} L</td><td>${esc(r.combustivel)}</td><td>${fmtMoney(r.valorTotal)}</td><td>${r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:'—'}</td>${compact?'':`<td>${esc(r.usuarioNome||'—')}</td><td>${statusPill(r)}</td>`}<td><button class="btn btn-outline btn-sm" data-detail="${esc(r.id)}">Detalhes</button></td></tr>`).join('')}</tbody></table>`;
+    return `<table><thead><tr><th>Data</th><th>Placa</th><th>KM</th><th>Litros</th><th>Combustível</th><th>Valor</th><th>Cartão</th><th>Consumo</th>${compact?'':'<th>Responsável</th><th>Status</th>'}<th>Ação</th></tr></thead><tbody>${records.map(r=>`<tr><td>${fmtDateTime(r.dataHora)}</td><td><strong>${esc(r.placa)}</strong></td><td>${fmtNumber(r.km,0)}</td><td>${fmtNumber(r.litros,2)} L</td><td>${esc(r.combustivel)}</td><td>${fmtMoney(r.valorTotal)}</td><td>${esc(r.cartaoNome||'—')}</td><td>${r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:'—'}</td>${compact?'':`<td>${esc(r.usuarioNome||'—')}</td><td>${statusPill(r)}</td>`}<td><button class="btn btn-outline btn-sm" data-detail="${esc(r.id)}">Detalhes</button></td></tr>`).join('')}</tbody></table>`;
   }
   function statusPill(record) {
     if (record.syncStatus === 'PENDING') return '<span class="status-pill status-pending">Pendente</span>';
@@ -460,6 +483,8 @@
 
   function renderNewForm() {
     const options = state.vehicles.filter(v=>v.ativo!==false).map(v=>`<option value="${esc(v.placa)}">${esc(v.placa)} · ${esc(`${v.marca||''} ${v.modelo||''}`.trim())}</option>`).join('');
+    const activeCards = state.cards.filter(c=>c.ativo!==false).sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+    const cardOptions = activeCards.map(c=>`<option value="${esc(c.id)}">${esc(c.nome)}${c.ultimos4?` · final ${esc(c.ultimos4)}`:''}</option>`).join('');
     $('view-new').innerHTML = `
       <div class="form-layout">
         <form id="fuelForm" class="form-card">
@@ -470,6 +495,7 @@
             <div class="field"><label>Litros abastecidos *<input id="fuelLiters" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="Ex.: 42,50"></label></div>
             <div class="field"><label>Combustível *<select id="fuelType" required>${FUEL_TYPES.map(x=>`<option>${esc(x)}</option>`).join('')}</select></label></div>
             <div class="field"><label>Valor total (R$) *<input id="fuelValue" type="number" min="0.01" step="0.01" inputmode="decimal" required placeholder="Ex.: 250,00"></label></div>
+            <div class="field full"><label>Cartão utilizado *<select id="fuelCard" required><option value="">Selecione o cartão</option>${cardOptions}</select><span id="cardBalanceHint" class="help">${activeCards.length?'Selecione o cartão para consultar o saldo estimado.':'Nenhum cartão ativo disponível. Solicite ao administrador o cadastro dos cartões.'}</span></label></div>
             <div class="field"><label>Posto / estabelecimento<input id="fuelStation" type="text" maxlength="100" placeholder="Nome do posto"></label></div>
             <div class="field"><label>Data e hora<input id="fuelDate" type="datetime-local" required></label><span class="help">Pré-preenchido com o horário do aparelho.</span></div>
             <div class="field full"><label class="check-line"><input id="fuelFullTank" type="checkbox"> <span><b>Abastecimento com tanque completo</b><br><small class="help">Marque somente quando o tanque foi completado. Isso permite calcular km/L por ciclo com maior confiabilidade.</small></span></label></div>
@@ -484,6 +510,8 @@
     const date = new Date(); date.setMinutes(date.getMinutes()-date.getTimezoneOffset());
     $('fuelDate').value = date.toISOString().slice(0,16);
     $('fuelPlate').addEventListener('change', updateVehicleHint);
+    $('fuelCard').addEventListener('change', updateSelectedCardHint);
+    $('fuelValue').addEventListener('input', updateSelectedCardHint);
     $('fuelForm').addEventListener('input', scheduleDraftSave);
     $('fuelForm').addEventListener('change', scheduleDraftSave);
     $('photoOdo').addEventListener('change', e=>handlePhoto(e,'odometro'));
@@ -537,9 +565,37 @@
     $('lastKmHint').textContent=hint;
     $('sideLastKm').textContent=`${fmtNumber(km,0)} km`;
   }
+  async function projectedCardBalance(cardId) {
+    const card = state.cards.find(c => String(c.id) === String(cardId));
+    if (!card) return null;
+    const outbox = await state.db.all('outbox');
+    const pendingDebit = outbox.reduce((sum, item) => {
+      const rec = item.record || {};
+      return String(rec.cartaoId || '') === String(cardId) ? sum + Number(rec.valorTotal || 0) : sum;
+    }, 0);
+    return Math.round((Number(card.saldoAtual || 0) - pendingDebit) * 100) / 100;
+  }
+  async function updateSelectedCardHint() {
+    const hint = $('cardBalanceHint');
+    const select = $('fuelCard');
+    if (!hint || !select) return;
+    const cardId = select.value;
+    const card = state.cards.find(c => String(c.id) === String(cardId));
+    if (!card) {
+      hint.textContent = state.cards.some(c => c.ativo !== false) ? 'Selecione o cartão para consultar o saldo estimado.' : 'Nenhum cartão ativo disponível. Solicite ao administrador o cadastro dos cartões.';
+      hint.classList.remove('card-balance-low');
+      return;
+    }
+    const available = await projectedCardBalance(cardId);
+    const value = Number($('fuelValue')?.value || 0);
+    const pendingSuffix = isOnline() ? 'Saldo estimado com pendências deste aparelho.' : 'Modo offline: saldo baseado no último sincronismo e nas pendências locais.';
+    hint.textContent = `Saldo disponível estimado: ${fmtMoney(Math.max(0, available))}. ${pendingSuffix}`;
+    hint.classList.toggle('card-balance-low', available <= Number(card.limiteAlerta || 0) || (value > 0 && value > available));
+    if (value > available) hint.textContent += ` Valor informado supera o saldo estimado em ${fmtMoney(value - available)}.`;
+  }
   function getDraftForm() {
     return {
-      placa:$('fuelPlate')?.value||'', km:$('fuelKm')?.value||'', litros:$('fuelLiters')?.value||'', combustivel:$('fuelType')?.value||FUEL_TYPES[0], valorTotal:$('fuelValue')?.value||'', posto:$('fuelStation')?.value||'', dataHora:$('fuelDate')?.value||'', tanqueCheio:!!$('fuelFullTank')?.checked, observacoes:$('fuelNotes')?.value||'', fotoOdometroData:photoCache.odometro, fotoNotaData:photoCache.nota
+      placa:$('fuelPlate')?.value||'', km:$('fuelKm')?.value||'', litros:$('fuelLiters')?.value||'', combustivel:$('fuelType')?.value||FUEL_TYPES[0], valorTotal:$('fuelValue')?.value||'', cartaoId:$('fuelCard')?.value||'', posto:$('fuelStation')?.value||'', dataHora:$('fuelDate')?.value||'', tanqueCheio:!!$('fuelFullTank')?.checked, observacoes:$('fuelNotes')?.value||'', fotoOdometroData:photoCache.odometro, fotoNotaData:photoCache.nota
     };
   }
   function scheduleDraftSave() {
@@ -554,7 +610,7 @@
   async function restoreDraft() {
     const draft=await state.db.get('draft','current');
     if(!draft || !$('fuelForm'))return;
-    for(const [id,key] of [['fuelPlate','placa'],['fuelKm','km'],['fuelLiters','litros'],['fuelType','combustivel'],['fuelValue','valorTotal'],['fuelStation','posto'],['fuelDate','dataHora'],['fuelNotes','observacoes']]) if(draft[key]!==undefined)$(id).value=draft[key];
+    for(const [id,key] of [['fuelPlate','placa'],['fuelKm','km'],['fuelLiters','litros'],['fuelType','combustivel'],['fuelValue','valorTotal'],['fuelCard','cartaoId'],['fuelStation','posto'],['fuelDate','dataHora'],['fuelNotes','observacoes']]) if(draft[key]!==undefined)$(id).value=draft[key];
     $('fuelFullTank').checked=!!draft.tanqueCheio;
     photoCache.odometro=draft.fotoOdometroData||null; photoCache.nota=draft.fotoNotaData||null;
     if(photoCache.odometro)$('previewOdo').innerHTML=`<img alt="Prévia da foto" src="${photoCache.odometro}">`;
@@ -562,6 +618,7 @@
     if(photoCache.odometro)$('photoOdo').required=false;
     if(photoCache.nota)$('photoReceipt').required=false;
     updateVehicleHint();
+    updateSelectedCardHint();
   }
 
   async function submitFuel(event) {
@@ -573,6 +630,11 @@
     if (!Number.isFinite(km)||km<0) return toast('Informe uma quilometragem válida.', 'warning');
     if (!Number.isFinite(liters)||liters<=0) return toast('Informe a quantidade de litros.', 'warning');
     if (!Number.isFinite(value)||value<=0) return toast('Informe o valor total do abastecimento.', 'warning');
+    if (!formData.cartaoId) return toast('Selecione o cartão utilizado no abastecimento.', 'warning');
+    const selectedCard = state.cards.find(c=>String(c.id)===String(formData.cartaoId)&&c.ativo!==false);
+    if (!selectedCard) return toast('O cartão selecionado não está disponível. Sincronize os dados ou solicite ao administrador.', 'error', 5500);
+    const estimatedBalance = await projectedCardBalance(formData.cartaoId);
+    if (estimatedBalance === null || value > estimatedBalance + 0.001) return toast(`Saldo estimado insuficiente no ${selectedCard.nome}. Disponível: ${fmtMoney(Math.max(0, estimatedBalance || 0))}.`, 'error', 5500);
     if (!formData.fotoOdometroData || !formData.fotoNotaData) return toast('As duas fotos são obrigatórias.', 'warning');
     const last=latestKm(formData.placa);
     if (last && km < last) return toast(`A quilometragem informada é menor que o último KM conhecido (${fmtNumber(last,0)}). Confira o dado ou solicite revisão do administrador.`, 'error', 5500);
@@ -581,7 +643,7 @@
     const timestamp = formData.dataHora ? new Date(formData.dataHora).toISOString() : new Date().toISOString();
     const record={
       id:uuid(), placa:formData.placa, km, litros, combustivel:formData.combustivel, valorTotal:value,
-      precoLitro:value/liters, posto:formData.posto.trim(), observacoes:formData.observacoes.trim(),
+      precoLitro:value/liters, cartaoId:formData.cartaoId, cartaoNome:selectedCard.nome, posto:formData.posto.trim(), observacoes:formData.observacoes.trim(),
       dataHora:timestamp, tanqueCheio:!!formData.tanqueCheio, fotoOdometroData:formData.fotoOdometroData,
       fotoNotaData:formData.fotoNotaData, usuarioId:state.user.id, usuarioNome:state.user.nome,
       deviceId:localDeviceId(), criadoLocalEm:new Date().toISOString(), syncStatus:'PENDING'
@@ -627,7 +689,7 @@
     const r=state.records.find(x=>x.id===id);if(!r)return;
     const canEdit=state.user.role==='ADMIN'&&r.syncStatus!=='PENDING';
     $('modalRoot').innerHTML=`<div class="modal-backdrop" data-close-modal><div class="modal-card"><div class="modal-header"><h3>Detalhes do abastecimento</h3><button class="icon-btn" data-close-modal aria-label="Fechar">×</button></div><div class="modal-body">
-      <div class="report-kv"><span>Veículo</span><b>${esc(r.placa)}</b></div><div class="report-kv"><span>Data / hora</span><b>${fmtDateTime(r.dataHora)}</b></div><div class="report-kv"><span>Quilometragem</span><b>${fmtNumber(r.km,0)} km</b></div><div class="report-kv"><span>Volume</span><b>${fmtNumber(r.litros,2)} L · ${esc(r.combustivel)}</b></div><div class="report-kv"><span>Valor</span><b>${fmtMoney(r.valorTotal)}</b></div><div class="report-kv"><span>Posto</span><b>${esc(r.posto||'—')}</b></div><div class="report-kv"><span>Responsável</span><b>${esc(r.usuarioNome||'—')}</b></div><div class="report-kv"><span>Consumo calculado</span><b>${r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:'Ainda não calculado (ciclo sem tanque completo)'}</b></div><div class="report-kv"><span>Situação</span><b>${esc(r.alertaDescricao|| (r.syncStatus==='PENDING'?'Aguardando sincronização':'Sem alerta'))}</b></div><p class="small-note">${esc(r.observacoes||'Sem observações.')}</p>
+      <div class="report-kv"><span>Veículo</span><b>${esc(r.placa)}</b></div><div class="report-kv"><span>Data / hora</span><b>${fmtDateTime(r.dataHora)}</b></div><div class="report-kv"><span>Quilometragem</span><b>${fmtNumber(r.km,0)} km</b></div><div class="report-kv"><span>Volume</span><b>${fmtNumber(r.litros,2)} L · ${esc(r.combustivel)}</b></div><div class="report-kv"><span>Valor</span><b>${fmtMoney(r.valorTotal)}</b></div><div class="report-kv"><span>Cartão utilizado</span><b>${esc(r.cartaoNome||'Não vinculado (histórico anterior)')}</b></div><div class="report-kv"><span>Posto</span><b>${esc(r.posto||'—')}</b></div><div class="report-kv"><span>Responsável</span><b>${esc(r.usuarioNome||'—')}</b></div><div class="report-kv"><span>Consumo calculado</span><b>${r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:'Ainda não calculado (ciclo sem tanque completo)'}</b></div><div class="report-kv"><span>Situação</span><b>${esc(r.alertaDescricao|| (r.syncStatus==='PENDING'?'Aguardando sincronização':'Sem alerta'))}</b></div><p class="small-note">${esc(r.observacoes||'Sem observações.')}</p>
       <div class="detail-photos">${photoLink(r.fotoOdometroUrl,r.fotoOdometroData,'Odômetro')}${photoLink(r.fotoNotaUrl,r.fotoNotaData,'Comprovante')}</div>
       ${r.syncError?`<p class="small-note" style="color:#b64040">Falha de sincronização: ${esc(r.syncError)}</p>`:''}
       </div><div class="modal-footer">${canEdit?`<button class="btn btn-outline" id="editRecordBtn">Corrigir registro</button>`:''}<button class="btn btn-primary" data-close-modal>Fechar</button></div></div></div>`;
@@ -710,6 +772,74 @@
     });
   }
 
+  function cardMovementLabel(type) {
+    return ({SALDO_INICIAL:'Saldo inicial',CARGA:'Recarga',DEBITO_ABASTECIMENTO:'Abastecimento',AJUSTE_DEBITO:'Complemento de débito',AJUSTE_CREDITO:'Estorno parcial',ESTORNO_ABASTECIMENTO:'Estorno de abastecimento',ESTORNO_COMPENSACAO:'Compensação',DEBITO_COMPENSACAO:'Compensação'})[type] || type || 'Movimentação';
+  }
+
+  function renderCards() {
+    if (state.user?.role !== 'ADMIN') return navigate('new');
+    const cards = state.cards.slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
+    const totalBalance = cards.filter(c=>c.ativo!==false).reduce((sum,c)=>sum+Number(c.saldoAtual||0),0);
+    const lowCards = cards.filter(c=>c.ativo!==false && Number(c.saldoAtual||0)<=Number(c.limiteAlerta||0));
+    const movements = state.cardMovements.slice().sort((a,b)=>new Date(b.dataHora)-new Date(a.dataHora)).slice(0,100);
+    $('view-cards').innerHTML = `
+      <div class="metric-grid card-metrics">
+        <article class="metric-card"><div class="metric-top">Saldo total disponível <span class="metric-icon">R$</span></div><div class="metric-value">${fmtMoney(totalBalance)}</div><div class="metric-note">Soma dos cartões ativos</div></article>
+        <article class="metric-card"><div class="metric-top">Cartões ativos <span class="metric-icon">▣</span></div><div class="metric-value">${cards.filter(c=>c.ativo!==false).length}</div><div class="metric-note">${cards.length} cadastrado(s)</div></article>
+        <article class="metric-card"><div class="metric-top">Saldo baixo <span class="metric-icon">⚠</span></div><div class="metric-value">${lowCards.length}</div><div class="metric-note">Atingiram o limite de alerta</div></article>
+      </div>
+      <div class="toolbar-row"><span class="muted">Os saldos são atualizados pelos abastecimentos sincronizados e pelas recargas registradas.</span><button class="btn btn-primary btn-sm" id="createCardBtn">＋ Cadastrar cartão</button></div>
+      <div class="card-grid payment-card-grid">${cards.map(card=>{
+        const low=card.ativo!==false && Number(card.saldoAtual||0)<=Number(card.limiteAlerta||0);
+        return `<article class="payment-card ${card.ativo===false?'payment-card-inactive':''}">
+          <div class="payment-card-head"><span class="payment-card-chip">▣</span><span class="status-pill ${card.ativo===false?'status-pending':low?'status-warning':'status-ok'}">${card.ativo===false?'Inativo':low?'Saldo baixo':'Ativo'}</span></div>
+          <div class="payment-card-name">${esc(card.nome)}</div><div class="payment-card-number">${card.ultimos4?'•••• '+esc(card.ultimos4):'Final do cartão não informado'}</div>
+          <div class="payment-card-balance-label">Saldo disponível</div><div class="payment-card-balance">${fmtMoney(card.saldoAtual)}</div>
+          <div class="payment-card-meta"><span>Saldo inicial</span><b>${fmtMoney(card.saldoInicial)}</b><span>Alerta de saldo</span><b>${fmtMoney(card.limiteAlerta)}</b></div>
+          <div class="payment-card-actions"><button class="btn btn-outline btn-sm" data-card-credit="${esc(card.id)}">＋ Registrar recarga</button><button class="btn btn-outline btn-sm" data-card-edit="${esc(card.id)}">✎ Editar</button></div>
+        </article>`;
+      }).join('')||'<div class="empty-state">Nenhum cartão cadastrado. Cadastre os cartões para liberar os lançamentos de abastecimento.</div>'}</div>
+      <div class="table-card card-ledger"><div class="table-head"><div><h3>Extrato de movimentações</h3><div class="panel-subtitle">Últimas 100 movimentações registradas</div></div></div><div class="table-wrap"><table><thead><tr><th>Data / hora</th><th>Cartão</th><th>Movimentação</th><th>Valor</th><th>Saldo anterior</th><th>Saldo posterior</th><th>Placa / referência</th><th>Responsável</th><th>Justificativa</th></tr></thead><tbody>${movements.map(m=>`<tr><td>${fmtDateTime(m.dataHora)}</td><td><strong>${esc(m.cartaoNome||'—')}</strong></td><td>${esc(cardMovementLabel(m.tipo))}</td><td>${fmtMoney(m.valor)}</td><td>${fmtMoney(m.saldoAntes)}</td><td>${fmtMoney(m.saldoDepois)}</td><td>${esc(m.placa||m.descricao||'—')}</td><td>${esc(m.usuarioNome||'—')}</td><td>${esc(m.motivo||'—')}</td></tr>`).join('')||'<tr><td colspan="9">Nenhuma movimentação registrada.</td></tr>'}</tbody></table></div></div>`;
+    $('createCardBtn')?.addEventListener('click',()=>openCardModal());
+    $('view-cards').querySelectorAll('[data-card-edit]').forEach(btn=>btn.addEventListener('click',()=>openCardModal(state.cards.find(c=>String(c.id)===btn.dataset.cardEdit))));
+    $('view-cards').querySelectorAll('[data-card-credit]').forEach(btn=>btn.addEventListener('click',()=>openCardCreditModal(state.cards.find(c=>String(c.id)===btn.dataset.cardCredit))));
+  }
+
+  function openCardModal(card=null) {
+    const editing=!!card;
+    $('modalRoot').innerHTML=`<div class="modal-backdrop"><div class="modal-card"><div class="modal-header"><h3>${editing?'Editar cartão':'Cadastrar cartão'}</h3><button class="icon-btn" data-card-close>×</button></div>
+      <form id="cardForm"><div class="modal-body"><div class="form-grid">
+        <div class="field full"><label>Nome para identificação *<input id="cardName" required maxlength="80" value="${esc(card?.nome||'')}" placeholder="Ex.: Cartão Frota 01"></label></div>
+        <div class="field"><label>Últimos 4 dígitos (opcional)<input id="cardLast4" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" value="${esc(card?.ultimos4||'')}" placeholder="1234"></label></div>
+        ${editing?`<div class="field"><label>Limite de alerta (R$)<input id="cardAlert" type="number" min="0" step="0.01" required value="${Number(card.limiteAlerta||0)}"></label></div><div class="field full"><label class="check-line"><input id="cardActive" type="checkbox" ${card.ativo===false?'':'checked'}><span><b>Cartão ativo</b><br><small class="help">Cartões inativos não poderão ser selecionados em novos abastecimentos.</small></span></label></div><div class="field full"><label>Motivo da alteração *<textarea id="cardReason" required minlength="5" maxlength="500" placeholder="Descreva o motivo da alteração"></textarea></label></div>`:`<div class="field"><label>Saldo inicial (R$) *<input id="cardInitial" type="number" min="0" step="0.01" required value="0"></label></div><div class="field"><label>Limite de alerta (R$)<input id="cardAlert" type="number" min="0" step="0.01" value="0"></label></div><div class="field full"><span class="help">O saldo inicial será registrado como primeira movimentação no extrato. Para adicionar saldo posteriormente, utilize “Registrar recarga”.</span></div>`}
+      </div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-card-close>Cancelar</button><button type="submit" class="btn btn-primary">${editing?'Salvar alterações':'Cadastrar cartão'}</button></div></form></div></div>`;
+    $('modalRoot').querySelectorAll('[data-card-close]').forEach(b=>b.addEventListener('click',()=>$('modalRoot').innerHTML=''));
+    $('cardForm').addEventListener('submit',async e=>{
+      e.preventDefault();
+      const payload={nome:$('cardName').value.trim(),ultimos4:$('cardLast4').value.trim(),limiteAlerta:Number($('cardAlert').value||0)};
+      try{
+        loading(true,editing?'Atualizando cartão...':'Cadastrando cartão...');
+        let result;
+        if(editing){payload.ativo=$('cardActive').checked;payload.motivo=$('cardReason').value.trim();result=await api('updateCard',{id:card.id,card:payload});}
+        else {payload.saldoInicial=Number($('cardInitial').value||0);result=await api('createCard',{card:payload});}
+        await state.db.put('cartoes',result.card);
+        $('modalRoot').innerHTML='';loading(false);await syncAll(false);renderCards();toast(editing?'Cartão atualizado.':'Cartão cadastrado.','success');
+      }catch(err){loading(false);toast(err.message,'error',5500);}
+    });
+  }
+
+  function openCardCreditModal(card) {
+    if(!card)return;
+    $('modalRoot').innerHTML=`<div class="modal-backdrop"><div class="modal-card"><div class="modal-header"><h3>Registrar recarga · ${esc(card.nome)}</h3><button class="icon-btn" data-card-credit-close>×</button></div><form id="cardCreditForm"><div class="modal-body"><div class="report-kv"><span>Saldo atual</span><b>${fmtMoney(card.saldoAtual)}</b></div><div class="form-grid"><div class="field full"><label>Valor da recarga (R$) *<input id="creditAmount" type="number" min="0.01" step="0.01" required placeholder="Ex.: 1.000,00"></label></div><div class="field full"><label>Descrição<input id="creditDescription" maxlength="160" value="Recarga de saldo"></label></div><div class="field full"><label>Origem / justificativa *<textarea id="creditReason" required minlength="5" maxlength="500" placeholder="Ex.: Crédito recebido da administradora"></textarea></label></div></div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-card-credit-close>Cancelar</button><button type="submit" class="btn btn-primary">Registrar recarga</button></div></form></div></div>`;
+    $('modalRoot').querySelectorAll('[data-card-credit-close]').forEach(b=>b.addEventListener('click',()=>$('modalRoot').innerHTML=''));
+    $('cardCreditForm').addEventListener('submit',async e=>{
+      e.preventDefault();
+      const credit={valor:Number($('creditAmount').value),descricao:$('creditDescription').value.trim(),motivo:$('creditReason').value.trim()};
+      try{loading(true,'Registrando recarga...');const result=await api('addCardCredit',{id:card.id,credit});await state.db.put('cartoes',result.card);$('modalRoot').innerHTML='';loading(false);await syncAll(false);renderCards();toast('Recarga registrada no extrato.','success');}
+      catch(err){loading(false);toast(err.message,'error',5500);}
+    });
+  }
+
   function renderReports() {
     const records=state.records.slice();
     const byFuel=FUEL_TYPES.map(f=>({fuel:f,items:records.filter(r=>r.combustivel===f)}));
@@ -724,8 +854,8 @@
 
   function exportCsv() {
     const rows=state.records.filter(r=>state.user.role==='ADMIN'||r.usuarioId===state.user.id).slice().sort((a,b)=>new Date(a.dataHora)-new Date(b.dataHora));
-    const headers=['ID','Data/Hora','Placa','KM','KM anterior','Distância último trecho','Litros','Combustível','Tanque completo','Valor total','Preço/L','Posto','Consumo km/L','Litros ciclo','Distância ciclo','Responsável','Alerta','Status'];
-    const values=rows.map(r=>[r.id,r.dataHora,r.placa,r.km,r.kmAnterior,r.distanciaUltimo,r.litros,r.combustivel,r.tanqueCheio?'Sim':'Não',r.valorTotal,r.precoLitro,r.posto,r.consumoKmL,r.litrosCiclo,r.distanciaCiclo,r.usuarioNome,r.alertaDescricao||r.alerta,r.syncStatus]);
+    const headers=['ID','Data/Hora','Placa','KM','KM anterior','Distância último trecho','Litros','Combustível','Tanque completo','Valor total','Preço/L','Cartão utilizado','Posto','Consumo km/L','Litros ciclo','Distância ciclo','Responsável','Alerta','Status'];
+    const values=rows.map(r=>[r.id,r.dataHora,r.placa,r.km,r.kmAnterior,r.distanciaUltimo,r.litros,r.combustivel,r.tanqueCheio?'Sim':'Não',r.valorTotal,r.precoLitro,r.cartaoNome||'',r.posto,r.consumoKmL,r.litrosCiclo,r.distanciaCiclo,r.usuarioNome,r.alertaDescricao||r.alerta,r.syncStatus]);
     const csv='\uFEFF'+[headers,...values].map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\r\n');
     const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`abastecimentos_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);toast('Relatório CSV exportado.','success');
   }
