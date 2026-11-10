@@ -1,4 +1,4 @@
-/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.0.1 */
+/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.0.2 */
 (() => {
   'use strict';
 
@@ -7,6 +7,9 @@
   const FUEL_TYPES = ['Gasolina', 'Gasolina aditivada', 'Etanol'];
   const DB_NAME = 'GPSAbastecimentoDB';
   const DB_VERSION = 1;
+  let swRegistration = null;
+  let applyingAppUpdate = false;
+  let checkingAppUpdate = false;
   const state = { db: null, user: null, token: null, view: 'dashboard', vehicles: [], records: [], users: [], draftTimer: null, launchActive: false, mobileMenu: false, syncing: false };
 
   class LocalDB {
@@ -62,6 +65,96 @@
     $('toastRegion').appendChild(node);
     setTimeout(() => node.remove(), duration);
   }
+  function showAppUpdateAvailable() {
+    const banner = $('updateBanner');
+    if (!banner) return;
+    banner.classList.remove('hidden');
+    const checkButton = $('checkUpdateBtn');
+    if (checkButton) checkButton.disabled = false;
+  }
+
+  function watchInstallingWorker(registration) {
+    const worker = registration.installing;
+    if (!worker) return;
+    worker.addEventListener('statechange', () => {
+      if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+        showAppUpdateAvailable();
+      }
+    });
+  }
+
+  async function registerAppServiceWorker() {
+    if (!('serviceWorker' in navigator)) {
+      const button = $('checkUpdateBtn');
+      if (button) button.disabled = true;
+      return;
+    }
+    try {
+      swRegistration = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
+      if (swRegistration.waiting && navigator.serviceWorker.controller) showAppUpdateAvailable();
+      watchInstallingWorker(swRegistration);
+      swRegistration.addEventListener('updatefound', () => watchInstallingWorker(swRegistration));
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (applyingAppUpdate) window.location.reload();
+      });
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && swRegistration) {
+          swRegistration.update().catch(() => {});
+        }
+      });
+      // Check once on startup as well; the manual button remains available at all times.
+      swRegistration.update().catch(() => {});
+    } catch (err) {
+      console.warn('Não foi possível registrar o Service Worker:', err);
+    }
+  }
+
+  async function checkForAppUpdate() {
+    const button = $('checkUpdateBtn');
+    if (checkingAppUpdate) return;
+    if (!('serviceWorker' in navigator)) {
+      toast('Este navegador não oferece suporte à atualização do aplicativo.', 'warning');
+      return;
+    }
+    checkingAppUpdate = true;
+    if (button) { button.disabled = true; button.innerHTML = '↻ <span>Verificando...</span>'; }
+    try {
+      if (!swRegistration) swRegistration = await navigator.serviceWorker.getRegistration('./');
+      if (!swRegistration) swRegistration = await navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' });
+      await swRegistration.update();
+      if (swRegistration.waiting && navigator.serviceWorker.controller) {
+        showAppUpdateAvailable();
+        toast('Nova versão disponível. Toque em “Atualizar agora” para aplicar.', 'success');
+      } else if (swRegistration.installing) {
+        watchInstallingWorker(swRegistration);
+        toast('Nova versão encontrada. O download está sendo preparado; o aviso aparecerá quando estiver pronto.', 'info', 5000);
+      } else {
+        toast('Seu aplicativo já está atualizado.', 'success');
+      }
+    } catch (err) {
+      toast('Não foi possível verificar a versão. Confira sua conexão e tente novamente.', 'error', 5000);
+      console.warn(err);
+    } finally {
+      checkingAppUpdate = false;
+      if (button) { button.disabled = false; button.innerHTML = '↻ <span>Verificar versão</span>'; }
+    }
+  }
+
+  async function applyAppUpdate() {
+    const waiting = swRegistration && swRegistration.waiting;
+    if (!waiting) {
+      toast('Não há atualização pronta para instalar. Use “Verificar versão” novamente.', 'warning');
+      return;
+    }
+    const unsynced = await pendingCount().catch(() => 0);
+    const message = unsynced > 0
+      ? `Há ${unsynced} abastecimento(s) aguardando sincronização. Os registros e fotos salvos no aparelho ficam preservados durante a atualização. Aplicar a nova versão agora?`
+      : 'O aplicativo será atualizado e recarregado. Continuar?';
+    if (!window.confirm(message)) return;
+    applyingAppUpdate = true;
+    waiting.postMessage({ type: 'GPS_SKIP_WAITING' });
+  }
+
   function loading(show, message = 'Processando...') {
     $('loadingText').textContent = message;
     $('loadingLayer').classList.toggle('hidden', !show);
@@ -661,7 +754,9 @@
     let touchStartY=0;
     document.addEventListener('touchstart',e=>{if(state.view==='new'&&e.touches.length===1)touchStartY=e.touches[0].clientY;},{passive:true});
     document.addEventListener('touchmove',e=>{if(state.view!=='new'||!e.touches.length)return;const y=e.touches[0].clientY;if(window.scrollY<=0&&y>touchStartY+8){e.preventDefault();}},{passive:false});
-    if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
+    $('checkUpdateBtn')?.addEventListener('click', checkForAppUpdate);
+    $('applyUpdateBtn')?.addEventListener('click', applyAppUpdate);
+    if ('serviceWorker' in navigator) window.addEventListener('load', registerAppServiceWorker, { once: true });
   }
 
   async function init() {

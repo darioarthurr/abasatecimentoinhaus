@@ -37,11 +37,16 @@
       <div class="brand brand-top"><div class="brand-mark">GPS</div><div><strong>GRUPO GPS</strong><small>ABASTECIMENTO DE FROTA</small></div></div>
       <div class="topbar-actions">
         <span id="connectionBadge" class="connection-badge"><i></i> Online</span>
+        <button id="checkUpdateBtn" class="btn btn-outline btn-update">↻ <span>Verificar versão</span></button>
         <button id="syncBtn" class="btn btn-outline btn-sync">↻ <span>Sincronizar</span></button>
         <div class="user-chip"><span id="userInitials" class="avatar">--</span><span><b id="userName">Usuário</b><small id="userRole">Operação</small></span></div>
         <button id="logoutBtn" class="icon-btn" title="Sair" aria-label="Sair">⇥</button>
       </div>
     </header>
+    <div id="updateBanner" class="update-banner hidden" role="status" aria-live="polite">
+      <div class="update-banner-copy"><strong>Nova versão disponível</strong><small>Atualize o aplicativo para carregar as melhorias mais recentes.</small></div>
+      <button id="applyUpdateBtn" class="btn btn-primary btn-sm" type="button">Atualizar agora</button>
+    </div>
 
     <div class="layout">
       <aside id="sidebar" class="sidebar">
