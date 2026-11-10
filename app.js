@@ -1,8 +1,8 @@
-/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.1.2 */
+/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.1.3 */
 (() => {
   'use strict';
 
-  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.2' };
+  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.3' };
   const $ = (id) => document.getElementById(id);
   const FUEL_TYPES = ['Gasolina', 'Gasolina aditivada', 'Etanol'];
   const DB_NAME = 'GPSAbastecimentoDB';
@@ -408,7 +408,9 @@
 
   function renderCurrentView() { navigate(state.view); }
   function getVehicle(plate) { return state.vehicles.find(v => v.placa === plate); }
-  function recordsForVehicle(plate) { return state.records.filter(r => r.placa === plate).sort((a,b) => new Date(a.dataHora) - new Date(b.dataHora)); }
+  function isCancelledRecord(record) { return String(record?.statusRegistro || '').toUpperCase() === 'CANCELADO'; }
+  function activeRecords(records) { return records.filter(record => !isCancelledRecord(record)); }
+  function recordsForVehicle(plate) { return activeRecords(state.records).filter(r => r.placa === plate).sort((a,b) => new Date(a.dataHora) - new Date(b.dataHora)); }
   function latestKm(plate) { const list = recordsForVehicle(plate); return list.length ? Number(list[list.length - 1].km || 0) : Number(getVehicle(plate)?.kmAtual || 0); }
   function averageConsumption(records) {
     const valid = records.filter(r => Number(r.consumoKmL) > 0);
@@ -424,7 +426,7 @@
   }
 
   function renderDashboard() {
-    const records = state.records.slice().sort((a,b) => new Date(b.dataHora)-new Date(a.dataHora));
+    const records = activeRecords(state.records).slice().sort((a,b) => new Date(b.dataHora)-new Date(a.dataHora));
     const currentMonth = new Date();
     const monthRecords = records.filter(r => { const d = new Date(r.dataHora); return d.getMonth() === currentMonth.getMonth() && d.getFullYear() === currentMonth.getFullYear(); });
     const totalLiters = monthRecords.reduce((s,r)=>s+Number(r.litros||0),0);
@@ -472,9 +474,10 @@
 
   function renderFuelTable(records, compact = false) {
     if (!records.length) return '<div class="empty-state"><b>Nenhum registro encontrado</b>Os abastecimentos aparecerão aqui após o primeiro lançamento.</div>';
-    return `<table><thead><tr><th>Data</th><th>Placa</th><th>KM</th><th>Litros</th><th>Combustível</th><th>Valor</th><th>Cartão</th><th>Consumo</th>${compact?'':'<th>Responsável</th><th>Status</th>'}<th>Ação</th></tr></thead><tbody>${records.map(r=>`<tr><td>${fmtDateTime(r.dataHora)}</td><td><strong>${esc(r.placa)}</strong></td><td>${fmtNumber(r.km,0)}</td><td>${fmtNumber(r.litros,2)} L</td><td>${esc(r.combustivel)}</td><td>${fmtMoney(r.valorTotal)}</td><td>${esc(r.cartaoNome||'—')}</td><td>${r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:'—'}</td>${compact?'':`<td>${esc(r.usuarioNome||'—')}</td><td>${statusPill(r)}</td>`}<td><button class="btn btn-outline btn-sm" data-detail="${esc(r.id)}">Detalhes</button></td></tr>`).join('')}</tbody></table>`;
+    return `<table><thead><tr><th>Data</th><th>Placa</th><th>KM</th><th>Litros</th><th>Combustível</th><th>Valor</th><th>Cartão</th><th>Consumo</th>${compact?'':'<th>Responsável</th><th>Status</th>'}<th>Ação</th></tr></thead><tbody>${records.map(r=>`<tr class="${isCancelledRecord(r)?'record-cancelled':''}"><td>${fmtDateTime(r.dataHora)}</td><td><strong>${esc(r.placa)}</strong></td><td>${fmtNumber(r.km,0)}</td><td>${fmtNumber(r.litros,2)} L</td><td>${esc(r.combustivel)}</td><td>${fmtMoney(r.valorTotal)}</td><td>${esc(r.cartaoNome||'—')}</td><td>${r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:'—'}</td>${compact?'':`<td>${esc(r.usuarioNome||'—')}</td><td>${statusPill(r)}</td>`}<td><button class="btn btn-outline btn-sm" data-detail="${esc(r.id)}">Detalhes</button></td></tr>`).join('')}</tbody></table>`;
   }
   function statusPill(record) {
+    if (isCancelledRecord(record)) return '<span class="status-pill status-danger">Cancelado</span>';
     if (record.syncStatus === 'PENDING') return '<span class="status-pill status-pending">Pendente</span>';
     if (record.syncStatus === 'REVIEW') return '<span class="status-pill status-danger">Revisar</span>';
     if (record.alerta && record.alerta !== 'OK') return '<span class="status-pill status-warning">Alerta</span>';
@@ -672,10 +675,10 @@
 
   function renderHistory() {
     const list=state.records.filter(r=>state.user.role==='ADMIN'||r.usuarioId===state.user.id).slice().sort((a,b)=>new Date(b.dataHora)-new Date(a.dataHora));
-    $('view-history').innerHTML=`<div class="table-card"><div class="filters"><input id="historySearch" class="search-filter" placeholder="Buscar placa, posto ou responsável"><select id="historyStatus"><option value="">Todos os status</option><option value="PENDING">Pendente</option><option value="REVIEW">Revisar</option><option value="SYNCED">Sincronizado</option></select><select id="historyFuel"><option value="">Todos os combustíveis</option>${FUEL_TYPES.map(f=>`<option>${esc(f)}</option>`).join('')}</select></div><div class="table-wrap" id="historyTable">${renderFuelTable(list)}</div></div>`;
+    $('view-history').innerHTML=`<div class="table-card"><div class="filters"><input id="historySearch" class="search-filter" placeholder="Buscar placa, posto ou responsável"><select id="historyStatus"><option value="">Todos os status</option><option value="PENDING">Pendente</option><option value="REVIEW">Revisar</option><option value="SYNCED">Sincronizado</option><option value="CANCELADO">Cancelado</option></select><select id="historyFuel"><option value="">Todos os combustíveis</option>${FUEL_TYPES.map(f=>`<option>${esc(f)}</option>`).join('')}</select></div><div class="table-wrap" id="historyTable">${renderFuelTable(list)}</div></div>`;
     const apply=()=>{
       const term=$('historySearch').value.toLowerCase();const status=$('historyStatus').value;const fuel=$('historyFuel').value;
-      const filtered=list.filter(r=>(!term||[r.placa,r.posto,r.usuarioNome].join(' ').toLowerCase().includes(term))&&(!status||r.syncStatus===status)&&(!fuel||r.combustivel===fuel));
+      const filtered=list.filter(r=>(!term||[r.placa,r.posto,r.usuarioNome,r.motivoCancelamento].join(' ').toLowerCase().includes(term))&&(!status||(status==='CANCELADO'?isCancelledRecord(r):(!isCancelledRecord(r)&&r.syncStatus===status)))&&(!fuel||r.combustivel===fuel));
       $('historyTable').innerHTML=renderFuelTable(filtered);
       bindRecordActions($('historyTable'));
     };
@@ -687,14 +690,42 @@
   }
   function showRecordDetail(id) {
     const r=state.records.find(x=>x.id===id);if(!r)return;
-    const canEdit=state.user.role==='ADMIN'&&r.syncStatus!=='PENDING';
+    const cancelled=isCancelledRecord(r);
+    const canEdit=state.user.role==='ADMIN'&&r.syncStatus==='SYNCED'&&!cancelled;
+    const canCancel=state.user.role==='ADMIN'&&r.syncStatus==='SYNCED'&&!cancelled;
+    const statusText=cancelled?'Cancelado':(r.syncStatus==='PENDING'?'Aguardando sincronização':r.syncStatus==='REVIEW'?'Pendente de revisão':(r.alertaDescricao||'Sincronizado'));
     $('modalRoot').innerHTML=`<div class="modal-backdrop" data-close-modal><div class="modal-card"><div class="modal-header"><h3>Detalhes do abastecimento</h3><button class="icon-btn" data-close-modal aria-label="Fechar">×</button></div><div class="modal-body">
-      <div class="report-kv"><span>Veículo</span><b>${esc(r.placa)}</b></div><div class="report-kv"><span>Data / hora</span><b>${fmtDateTime(r.dataHora)}</b></div><div class="report-kv"><span>Quilometragem</span><b>${fmtNumber(r.km,0)} km</b></div><div class="report-kv"><span>Volume</span><b>${fmtNumber(r.litros,2)} L · ${esc(r.combustivel)}</b></div><div class="report-kv"><span>Valor</span><b>${fmtMoney(r.valorTotal)}</b></div><div class="report-kv"><span>Cartão utilizado</span><b>${esc(r.cartaoNome||'Não vinculado (histórico anterior)')}</b></div><div class="report-kv"><span>Posto</span><b>${esc(r.posto||'—')}</b></div><div class="report-kv"><span>Responsável</span><b>${esc(r.usuarioNome||'—')}</b></div><div class="report-kv"><span>Consumo calculado</span><b>${r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:'Ainda não calculado (ciclo sem tanque completo)'}</b></div><div class="report-kv"><span>Situação</span><b>${esc(r.alertaDescricao|| (r.syncStatus==='PENDING'?'Aguardando sincronização':'Sem alerta'))}</b></div><p class="small-note">${esc(r.observacoes||'Sem observações.')}</p>
+      <div class="report-kv"><span>Veículo</span><b>${esc(r.placa)}</b></div><div class="report-kv"><span>Data / hora</span><b>${fmtDateTime(r.dataHora)}</b></div><div class="report-kv"><span>Quilometragem</span><b>${fmtNumber(r.km,0)} km</b></div><div class="report-kv"><span>Volume</span><b>${fmtNumber(r.litros,2)} L · ${esc(r.combustivel)}</b></div><div class="report-kv"><span>Valor</span><b>${fmtMoney(r.valorTotal)}</b></div><div class="report-kv"><span>Cartão utilizado</span><b>${esc(r.cartaoNome||'Não vinculado (histórico anterior)')}</b></div><div class="report-kv"><span>Posto</span><b>${esc(r.posto||'—')}</b></div><div class="report-kv"><span>Responsável pelo lançamento</span><b>${esc(r.usuarioNome||'—')}</b></div><div class="report-kv"><span>Consumo calculado</span><b>${!cancelled&&r.consumoKmL?`${fmtNumber(r.consumoKmL,2)} km/L`:(cancelled?'Não considerado (registro cancelado)':'Ainda não calculado (ciclo sem tanque completo)')}</b></div><div class="report-kv"><span>Situação</span><b>${esc(statusText)}</b></div>
+      ${cancelled?`<div class="report-kv"><span>Cancelado em</span><b>${fmtDateTime(r.canceladoEm)}</b></div><div class="report-kv"><span>Cancelado por</span><b>${esc(r.canceladoPorNome||'—')}</b></div><div class="report-kv"><span>Justificativa</span><b>${esc(r.motivoCancelamento||'—')}</b></div>`:''}
+      <p class="small-note">${esc(r.observacoes||'Sem observações.')}</p>
       <div class="detail-photos">${photoLink(r.fotoOdometroUrl,r.fotoOdometroData,'Odômetro')}${photoLink(r.fotoNotaUrl,r.fotoNotaData,'Comprovante')}</div>
       ${r.syncError?`<p class="small-note" style="color:#b64040">Falha de sincronização: ${esc(r.syncError)}</p>`:''}
-      </div><div class="modal-footer">${canEdit?`<button class="btn btn-outline" id="editRecordBtn">Corrigir registro</button>`:''}<button class="btn btn-primary" data-close-modal>Fechar</button></div></div></div>`;
+      ${state.user.role==='ADMIN'&&r.syncStatus!=='SYNCED'&&!cancelled?'<p class="small-note">Para corrigir ou cancelar, sincronize o registro primeiro. Registros ainda pendentes ou em revisão não podem ser cancelados pelo servidor.</p>':''}
+      </div><div class="modal-footer">${canEdit?`<button class="btn btn-outline" id="editRecordBtn">Corrigir registro</button>`:''}${canCancel?`<button class="btn btn-danger" id="cancelRecordBtn">Cancelar abastecimento</button>`:''}<button class="btn btn-primary" data-close-modal>Fechar</button></div></div></div>`;
     $('modalRoot').querySelectorAll('[data-close-modal]').forEach(el=>el.addEventListener('click',e=>{if(e.target===el||el.tagName==='BUTTON')$('modalRoot').innerHTML='';}));
     $('editRecordBtn')?.addEventListener('click',()=>editRecord(id));
+    $('cancelRecordBtn')?.addEventListener('click',()=>openCancelFuelModal(id));
+  }
+  function openCancelFuelModal(id) {
+    const r=state.records.find(x=>x.id===id);if(!r||isCancelledRecord(r)||state.user?.role!=='ADMIN')return;
+    $('modalRoot').innerHTML=`<div class="modal-backdrop"><div class="modal-card"><div class="modal-header"><h3>Cancelar abastecimento</h3><button class="icon-btn" data-cancel-close aria-label="Fechar">×</button></div><form id="cancelFuelForm"><div class="modal-body"><p><strong>${esc(r.placa)}</strong> · ${fmtDateTime(r.dataHora)}</p><div class="report-kv"><span>Valor do abastecimento</span><b>${fmtMoney(r.valorTotal)}</b></div><p class="small-note">O registro não será apagado. Ficará identificado como CANCELADO no histórico, deixará de compor os indicadores e será registrado na auditoria.</p><p class="small-note">O valor será estornado ao cartão se o abastecimento pertencer ao ciclo mensal atual. Se o mês já tiver sido renovado, o cancelamento será registrado sem aumentar o saldo do novo ciclo.</p><div class="field"><label>Justificativa obrigatória *<textarea id="cancelFuelReason" required minlength="5" maxlength="500" placeholder="Ex.: lançamento de teste, duplicidade ou comprovante inválido"></textarea></label></div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-cancel-close>Voltar</button><button type="submit" class="btn btn-danger">Confirmar cancelamento</button></div></form></div></div>`;
+    $('modalRoot').querySelectorAll('[data-cancel-close]').forEach(btn=>btn.addEventListener('click',()=>{$('modalRoot').innerHTML='';}));
+    $('cancelFuelForm').addEventListener('submit',async event=>{
+      event.preventDefault();
+      const motivo=$('cancelFuelReason').value.trim();
+      if(motivo.length<5)return toast('Informe uma justificativa com pelo menos 5 caracteres.','warning');
+      try{
+        loading(true,'Cancelando abastecimento e registrando auditoria...');
+        const result=await api('cancelFuel',{id,motivo});
+        await state.db.put('abastecimentos',{...result.record,syncStatus:'SYNCED'});
+        if(result.card)await state.db.put('cartoes',result.card);
+        if(result.movement)await state.db.put('movimentacoesCartoes',result.movement);
+        await loadLocalData();
+        loading(false);$('modalRoot').innerHTML='';
+        toast(result.alreadyCancelled?'Este abastecimento já estava cancelado.':'Abastecimento cancelado. Histórico, auditoria e saldo do cartão atualizados.','success',5500);
+        navigate(state.view==='history'?'history':state.view);
+      }catch(err){loading(false);toast(err.message,'error',6000);}
+    });
   }
   function photoLink(url,data,label) {
     const source=data||url;
@@ -773,7 +804,7 @@
   }
 
   function cardMovementLabel(type) {
-    return ({SALDO_INICIAL:'Saldo inicial',CARGA:'Recarga',RENOVACAO_MENSAL:'Crédito mensal (dia 1)',EXPIRACAO_SALDO:'Zeragem do saldo remanescente',DEBITO_ABASTECIMENTO:'Abastecimento',AJUSTE_DEBITO:'Complemento de débito',AJUSTE_CREDITO:'Estorno parcial',ESTORNO_ABASTECIMENTO:'Estorno de abastecimento',ESTORNO_COMPENSACAO:'Compensação',DEBITO_COMPENSACAO:'Compensação'})[type] || type || 'Movimentação';
+    return ({SALDO_INICIAL:'Saldo inicial',CARGA:'Recarga',RENOVACAO_MENSAL:'Crédito mensal (dia 1)',EXPIRACAO_SALDO:'Zeragem do saldo remanescente',DEBITO_ABASTECIMENTO:'Abastecimento',AJUSTE_DEBITO:'Complemento de débito',AJUSTE_CREDITO:'Estorno parcial',ESTORNO_ABASTECIMENTO:'Estorno de abastecimento',ESTORNO_CANCELAMENTO:'Estorno de abastecimento cancelado',CANCELAMENTO_FORA_DO_CICLO:'Cancelamento após renovação (sem alterar saldo)',ESTORNO_COMPENSACAO:'Compensação',DEBITO_COMPENSACAO:'Compensação'})[type] || type || 'Movimentação';
   }
 
   function renderCards() {
@@ -841,7 +872,7 @@
   }
 
   function renderReports() {
-    const records=state.records.slice();
+    const records=activeRecords(state.records).slice();
     const byFuel=FUEL_TYPES.map(f=>({fuel:f,items:records.filter(r=>r.combustivel===f)}));
     const now=new Date();
     const thisMonth=records.filter(r=>{const d=new Date(r.dataHora);return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear();});
@@ -854,8 +885,8 @@
 
   function exportCsv() {
     const rows=state.records.filter(r=>state.user.role==='ADMIN'||r.usuarioId===state.user.id).slice().sort((a,b)=>new Date(a.dataHora)-new Date(b.dataHora));
-    const headers=['ID','Data/Hora','Placa','KM','KM anterior','Distância último trecho','Litros','Combustível','Tanque completo','Valor total','Preço/L','Cartão utilizado','Posto','Consumo km/L','Litros ciclo','Distância ciclo','Responsável','Alerta','Status'];
-    const values=rows.map(r=>[r.id,r.dataHora,r.placa,r.km,r.kmAnterior,r.distanciaUltimo,r.litros,r.combustivel,r.tanqueCheio?'Sim':'Não',r.valorTotal,r.precoLitro,r.cartaoNome||'',r.posto,r.consumoKmL,r.litrosCiclo,r.distanciaCiclo,r.usuarioNome,r.alertaDescricao||r.alerta,r.syncStatus]);
+    const headers=['ID','Data/Hora','Placa','KM','KM anterior','Distância último trecho','Litros','Combustível','Tanque completo','Valor total','Preço/L','Cartão utilizado','Posto','Consumo km/L','Litros ciclo','Distância ciclo','Responsável','Alerta','Status sincronização','Situação do registro','Cancelado em','Cancelado por','Justificativa do cancelamento'];
+    const values=rows.map(r=>[r.id,r.dataHora,r.placa,r.km,r.kmAnterior,r.distanciaUltimo,r.litros,r.combustivel,r.tanqueCheio?'Sim':'Não',r.valorTotal,r.precoLitro,r.cartaoNome||'',r.posto,r.consumoKmL,r.litrosCiclo,r.distanciaCiclo,r.usuarioNome,r.alertaDescricao||r.alerta,r.syncStatus,r.statusRegistro||'ATIVO',r.canceladoEm||'',r.canceladoPorNome||'',r.motivoCancelamento||'']);
     const csv='\uFEFF'+[headers,...values].map(row=>row.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(';')).join('\r\n');
     const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=`abastecimentos_${new Date().toISOString().slice(0,10)}.csv`;a.click();URL.revokeObjectURL(url);toast('Relatório CSV exportado.','success');
   }

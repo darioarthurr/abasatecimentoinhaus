@@ -19,7 +19,7 @@
 }
 @media(max-width:410px){.topbar-actions{gap:5px}.btn-update{min-width:31px;padding:7px}}
 
-/* Gestão financeira dos cartões de abastecimento - v1.1.0 */
+/* Gestão financeira dos cartões de abastecimento - v1.1.1 */
 .payment-card-grid{margin:12px 0 18px}
 .payment-card{background:linear-gradient(145deg,#0b3d63,#07516a);color:#fff;border-radius:15px;padding:18px;box-shadow:0 10px 24px rgba(7,53,85,.15);min-width:0}
 .payment-card-inactive{background:linear-gradient(145deg,#566574,#71808e);opacity:.82}
@@ -40,3 +40,5 @@
 .card-balance-low{display:block;color:#a23b2a!important;font-weight:700}
 .card-metrics{margin-bottom:14px}
 @media(max-width:760px){.payment-card-balance{font-size:25px}.payment-card-actions .btn{flex:1}}
+
+.status-pill.status-cancelled{background:#ffebeb;color:#b64040}tr.record-cancelled td{color:#8a929b;background:#fcf7f7}tr.record-cancelled td strong{text-decoration:line-through;text-decoration-color:#c04444}
