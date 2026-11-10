@@ -1,0 +1,17 @@
+SISTEMA DE GESTAO DE ABASTECIMENTO - GRUPO GPS
+Versao 1.0.0
+
+ORDEM DE CONFIGURACAO
+1) Google Apps Script: copiar backend/Code.gs para um projeto novo.
+2) Executar setupFleetSystem e autorizar Sheets/Drive.
+3) Configurar FIRST_ADMIN_NAME, FIRST_ADMIN_EMAIL e FIRST_ADMIN_PASSWORD nas propriedades do script.
+4) Executar bootstrapFirstAdmin uma unica vez.
+5) Implantar como Aplicativo da Web e copiar a URL /exec.
+6) Colar a URL em API_URL no arquivo config.js.
+7) Publicar no GitHub Pages os arquivos da raiz e a pasta assets/.
+8) Entrar como ADMIN, cadastrar veiculos e usuarios.
+9) Fazer piloto online/offline com 2 celulares antes de liberar para todos.
+
+NAO PUBLICAR backend/Code.gs no GitHub Pages.
+NAO COMPARTILHAR a planilha ou pasta de fotos publicamente.
+LEIA O LEIA-ME.md PARA O PROCEDIMENTO COMPLETO.
