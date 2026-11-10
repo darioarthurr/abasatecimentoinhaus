@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#07345b">
+  <meta name="description" content="Gestão de abastecimento e consumo de frota.">
+  <title>Gestão de Abastecimento | Grupo GPS</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="toastRegion" class="toast-region" aria-live="polite"></div>
+  <div id="loadingLayer" class="loading-layer hidden"><div class="spinner"></div><span id="loadingText">Carregando...</span></div>
+
+  <main id="loginView" class="login-view">
+    <section class="login-card">
+      <div class="brand brand-login"><div class="brand-mark">GPS</div><div><strong>GRUPO GPS</strong><small>GESTÃO DE FROTA</small></div></div>
+      <div class="login-symbol">⛽</div>
+      <h1>Controle de Abastecimento</h1>
+      <p class="muted">Entre com seu usuário corporativo autorizado.</p>
+      <form id="loginForm" class="stack-form">
+        <label>E-mail<input id="loginEmail" type="email" autocomplete="username" required placeholder="nome@empresa.com"></label>
+        <label>Senha<input id="loginPassword" type="password" autocomplete="current-password" required placeholder="Sua senha"></label>
+        <button class="btn btn-primary btn-full" type="submit">Entrar no sistema</button>
+      </form>
+      <p id="loginStatus" class="login-status">Conecte-se à internet para validar seu acesso pela primeira vez.</p>
+      <div class="login-footer">Grupo GPS · Controle operacional de abastecimento</div>
+    </section>
+  </main>
+
+  <div id="appView" class="app-view hidden">
+    <header class="topbar">
+      <button id="mobileMenuBtn" class="icon-btn mobile-only" aria-label="Abrir menu">☰</button>
+      <div class="brand brand-top"><div class="brand-mark">GPS</div><div><strong>GRUPO GPS</strong><small>ABASTECIMENTO DE FROTA</small></div></div>
+      <div class="topbar-actions">
+        <span id="connectionBadge" class="connection-badge"><i></i> Online</span>
+        <button id="syncBtn" class="btn btn-outline btn-sync">↻ <span>Sincronizar</span></button>
+        <div class="user-chip"><span id="userInitials" class="avatar">--</span><span><b id="userName">Usuário</b><small id="userRole">Operação</small></span></div>
+        <button id="logoutBtn" class="icon-btn" title="Sair" aria-label="Sair">⇥</button>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside id="sidebar" class="sidebar">
+        <div class="sidebar-label">MENU PRINCIPAL</div>
+        <nav id="mainNav">
+          <button data-view="dashboard" class="nav-item active admin-only">▦ <span>Visão geral</span></button>
+          <button data-view="new" class="nav-item">＋ <span>Novo abastecimento</span></button>
+          <button data-view="history" class="nav-item">▤ <span id="historyNavLabel">Histórico</span></button>
+          <div class="sidebar-divider admin-only"></div>
+          <div class="sidebar-label admin-only">GESTÃO</div>
+          <button data-view="vehicles" class="nav-item admin-only">▣ <span>Veículos</span></button>
+          <button data-view="users" class="nav-item admin-only">♙ <span>Usuários</span></button>
+          <button data-view="reports" class="nav-item admin-only">▥ <span>Relatórios</span></button>
+        </nav>
+        <div class="sidebar-bottom"><span class="status-dot"></span><span id="pendingLabel">Tudo sincronizado</span></div>
+      </aside>
+
+      <div id="sidebarScrim" class="sidebar-scrim"></div>
+      <section class="content-area">
+        <div class="page-heading">
+          <div><div class="eyebrow">CONTROLE OPERACIONAL</div><h1 id="pageTitle">Visão geral</h1><p id="pageSubtitle">Indicadores e alertas da frota</p></div>
+          <div id="pageHeadingAction"></div>
+        </div>
+        <section id="view-dashboard" class="view admin-only"></section>
+        <section id="view-new" class="view hidden"></section>
+        <section id="view-history" class="view hidden"></section>
+        <section id="view-vehicles" class="view admin-only hidden"></section>
+        <section id="view-users" class="view admin-only hidden"></section>
+        <section id="view-reports" class="view admin-only hidden"></section>
+      </section>
+    </div>
+  </div>
+
+  <div id="modalRoot"></div>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
