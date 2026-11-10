@@ -1,8 +1,8 @@
-/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.1.0 */
+/* Controle de Abastecimento - PWA Grupo GPS | Frontend 1.1.1 */
 (() => {
   'use strict';
 
-  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.0' };
+  const CFG = window.APP_CONFIG || { API_URL: '', VERSION: '1.1.1' };
   const $ = (id) => document.getElementById(id);
   const FUEL_TYPES = ['Gasolina', 'Gasolina aditivada', 'Etanol'];
   const DB_NAME = 'GPSAbastecimentoDB';
@@ -773,7 +773,7 @@
   }
 
   function cardMovementLabel(type) {
-    return ({SALDO_INICIAL:'Saldo inicial',CARGA:'Recarga',DEBITO_ABASTECIMENTO:'Abastecimento',AJUSTE_DEBITO:'Complemento de débito',AJUSTE_CREDITO:'Estorno parcial',ESTORNO_ABASTECIMENTO:'Estorno de abastecimento',ESTORNO_COMPENSACAO:'Compensação',DEBITO_COMPENSACAO:'Compensação'})[type] || type || 'Movimentação';
+    return ({SALDO_INICIAL:'Saldo inicial',CARGA:'Recarga',RENOVACAO_MENSAL:'Crédito mensal (dia 1)',EXPIRACAO_SALDO:'Zeragem do saldo remanescente',DEBITO_ABASTECIMENTO:'Abastecimento',AJUSTE_DEBITO:'Complemento de débito',AJUSTE_CREDITO:'Estorno parcial',ESTORNO_ABASTECIMENTO:'Estorno de abastecimento',ESTORNO_COMPENSACAO:'Compensação',DEBITO_COMPENSACAO:'Compensação'})[type] || type || 'Movimentação';
   }
 
   function renderCards() {
@@ -795,7 +795,7 @@
           <div class="payment-card-head"><span class="payment-card-chip">▣</span><span class="status-pill ${card.ativo===false?'status-pending':low?'status-warning':'status-ok'}">${card.ativo===false?'Inativo':low?'Saldo baixo':'Ativo'}</span></div>
           <div class="payment-card-name">${esc(card.nome)}</div><div class="payment-card-number">${card.ultimos4?'•••• '+esc(card.ultimos4):'Final do cartão não informado'}</div>
           <div class="payment-card-balance-label">Saldo disponível</div><div class="payment-card-balance">${fmtMoney(card.saldoAtual)}</div>
-          <div class="payment-card-meta"><span>Saldo inicial</span><b>${fmtMoney(card.saldoInicial)}</b><span>Alerta de saldo</span><b>${fmtMoney(card.limiteAlerta)}</b></div>
+          <div class="payment-card-meta"><span>Crédito mensal (dia 1)</span><b>${fmtMoney(card.creditoMensal ?? card.saldoInicial)}</b><span>Alerta de saldo</span><b>${fmtMoney(card.limiteAlerta)}</b></div><div class="payment-card-meta"><span>Último ciclo</span><b>${esc(card.ultimoCicloMensal || '—')}</b></div>
           <div class="payment-card-actions"><button class="btn btn-outline btn-sm" data-card-credit="${esc(card.id)}">＋ Registrar recarga</button><button class="btn btn-outline btn-sm" data-card-edit="${esc(card.id)}">✎ Editar</button></div>
         </article>`;
       }).join('')||'<div class="empty-state">Nenhum cartão cadastrado. Cadastre os cartões para liberar os lançamentos de abastecimento.</div>'}</div>
@@ -811,12 +811,12 @@
       <form id="cardForm"><div class="modal-body"><div class="form-grid">
         <div class="field full"><label>Nome para identificação *<input id="cardName" required maxlength="80" value="${esc(card?.nome||'')}" placeholder="Ex.: Cartão Frota 01"></label></div>
         <div class="field"><label>Últimos 4 dígitos (opcional)<input id="cardLast4" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" value="${esc(card?.ultimos4||'')}" placeholder="1234"></label></div>
-        ${editing?`<div class="field"><label>Limite de alerta (R$)<input id="cardAlert" type="number" min="0" step="0.01" required value="${Number(card.limiteAlerta||0)}"></label></div><div class="field full"><label class="check-line"><input id="cardActive" type="checkbox" ${card.ativo===false?'':'checked'}><span><b>Cartão ativo</b><br><small class="help">Cartões inativos não poderão ser selecionados em novos abastecimentos.</small></span></label></div><div class="field full"><label>Motivo da alteração *<textarea id="cardReason" required minlength="5" maxlength="500" placeholder="Descreva o motivo da alteração"></textarea></label></div>`:`<div class="field"><label>Saldo inicial (R$) *<input id="cardInitial" type="number" min="0" step="0.01" required value="0"></label></div><div class="field"><label>Limite de alerta (R$)<input id="cardAlert" type="number" min="0" step="0.01" value="0"></label></div><div class="field full"><span class="help">O saldo inicial será registrado como primeira movimentação no extrato. Para adicionar saldo posteriormente, utilize “Registrar recarga”.</span></div>`}
+        ${editing?`<div class="field"><label>Crédito mensal fixo (R$)<input id="cardMonthlyCredit" type="number" min="0" step="0.01" required value="${Number(card.creditoMensal ?? card.saldoInicial ?? 0)}"></label></div><div class="field"><label>Limite de alerta (R$)<input id="cardAlert" type="number" min="0" step="0.01" required value="${Number(card.limiteAlerta||0)}"></label></div><div class="field full"><label class="check-line"><input id="cardActive" type="checkbox" ${card.ativo===false?'':'checked'}><span><b>Cartão ativo</b><br><small class="help">Cartões inativos não poderão ser selecionados em novos abastecimentos.</small></span></label></div><div class="field full"><label>Motivo da alteração *<textarea id="cardReason" required minlength="5" maxlength="500" placeholder="Descreva o motivo da alteração"></textarea></label></div>`:`<div class="field"><label>Saldo inicial (R$) *<input id="cardInitial" type="number" min="0" step="0.01" required value="0"></label></div><div class="field"><label>Crédito mensal fixo (R$) *<input id="cardMonthlyCredit" type="number" min="0" step="0.01" required value="0"></label></div><div class="field"><label>Limite de alerta (R$)<input id="cardAlert" type="number" min="0" step="0.01" value="0"></label></div><div class="field full"><span class="help">No dia 1º de cada mês, o saldo restante será zerado e o cartão receberá novamente o crédito mensal fixo. A renovação fica registrada no extrato.</span></div>`}
       </div></div><div class="modal-footer"><button type="button" class="btn btn-outline" data-card-close>Cancelar</button><button type="submit" class="btn btn-primary">${editing?'Salvar alterações':'Cadastrar cartão'}</button></div></form></div></div>`;
     $('modalRoot').querySelectorAll('[data-card-close]').forEach(b=>b.addEventListener('click',()=>$('modalRoot').innerHTML=''));
     $('cardForm').addEventListener('submit',async e=>{
       e.preventDefault();
-      const payload={nome:$('cardName').value.trim(),ultimos4:$('cardLast4').value.trim(),limiteAlerta:Number($('cardAlert').value||0)};
+      const payload={nome:$('cardName').value.trim(),ultimos4:$('cardLast4').value.trim(),limiteAlerta:Number($('cardAlert').value||0),creditoMensal:Number($('cardMonthlyCredit').value||0)};
       try{
         loading(true,editing?'Atualizando cartão...':'Cadastrando cartão...');
         let result;
